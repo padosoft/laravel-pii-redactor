@@ -22,7 +22,7 @@ composer require padosoft/laravel-pii-redactor
 ## Quick start
 
 ```php
-use Lopadova\PiiRedactor\Facades\Pii;
+use Padosoft\PiiRedactor\Facades\Pii;
 
 $redacted = Pii::redact('Mio CF: RSSMRA80A01H501Z, email: mario@example.com');
 // "Mio CF: <CF_001>, email: <EMAIL_001>"

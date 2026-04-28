@@ -7,14 +7,14 @@
     "authors": [
         {
             "name": "Lorenzo Padovani",
-            "email": "lorenzo.padovani@gmail.com"
+            "email": "lorenzo.padovani@padosoft.com"
         }
     ],
     "require": {
         "php": "^8.3",
         "illuminate/support": "^11.0|^12.0|^13.0",
         "illuminate/encryption": "^11.0|^12.0|^13.0",
-        "symfony/process": "^7.0"
+        "symfony/process": "^7.0|^8.0"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.0",
@@ -24,18 +24,18 @@
     },
     "autoload": {
         "psr-4": {
-            "Lopadova\\PiiRedactor\\": "src/"
+            "Padosoft\\PiiRedactor\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Lopadova\\PiiRedactor\\Tests\\": "tests/"
+            "Padosoft\\PiiRedactor\\Tests\\": "tests/"
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "Lopadova\\PiiRedactor\\PiiRedactorServiceProvider"
+                "Padosoft\\PiiRedactor\\PiiRedactorServiceProvider"
             ]
         }
     },
