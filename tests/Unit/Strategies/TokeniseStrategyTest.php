@@ -1,0 +1,73 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Padosoft\PiiRedactor\Tests\Unit\Strategies;
+
+use Padosoft\PiiRedactor\Exceptions\StrategyException;
+use Padosoft\PiiRedactor\Strategies\TokeniseStrategy;
+use PHPUnit\Framework\TestCase;
+
+final class TokeniseStrategyTest extends TestCase
+{
+    public function test_emits_namespaced_token_and_round_trips(): void
+    {
+        $strategy = new TokeniseStrategy(salt: 'pepper-2026');
+        $this->assertSame('tokenise', $strategy->name());
+
+        $token = $strategy->apply('mario.rossi@example.com', 'email');
+
+        $this->assertMatchesRegularExpression('/^\[tok:email:[0-9a-f]{8}\]$/', $token);
+        $this->assertSame('mario.rossi@example.com', $strategy->detokenise($token));
+    }
+
+    public function test_same_input_produces_same_token(): void
+    {
+        $strategy = new TokeniseStrategy(salt: 's');
+
+        $a = $strategy->apply('mario.rossi@example.com', 'email');
+        $b = $strategy->apply('mario.rossi@example.com', 'email');
+
+        $this->assertSame($a, $b);
+    }
+
+    public function test_different_inputs_produce_different_tokens(): void
+    {
+        $strategy = new TokeniseStrategy(salt: 's');
+
+        $a = $strategy->apply('one@x.com', 'email');
+        $b = $strategy->apply('two@x.com', 'email');
+
+        $this->assertNotSame($a, $b);
+    }
+
+    public function test_detokenise_string_replaces_all_tokens(): void
+    {
+        $strategy = new TokeniseStrategy(salt: 's');
+        $tokenA = $strategy->apply('one@x.com', 'email');
+        $tokenB = $strategy->apply('+39 333 1234567', 'phone_it');
+
+        $redacted = "Email: {$tokenA}, Tel: {$tokenB}.";
+        $restored = $strategy->detokeniseString($redacted);
+
+        $this->assertSame('Email: one@x.com, Tel: +39 333 1234567.', $restored);
+    }
+
+    public function test_dump_and_load_map_round_trips(): void
+    {
+        $a = new TokeniseStrategy(salt: 's');
+        $token = $a->apply('one@x.com', 'email');
+        $map = $a->dumpMap();
+
+        $b = new TokeniseStrategy(salt: 's');
+        $b->loadMap($map);
+
+        $this->assertSame('one@x.com', $b->detokenise($token));
+    }
+
+    public function test_rejects_empty_salt(): void
+    {
+        $this->expectException(StrategyException::class);
+        new TokeniseStrategy(salt: '');
+    }
+}

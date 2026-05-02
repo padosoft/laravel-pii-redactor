@@ -4,25 +4,96 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor;
 
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
+use Padosoft\PiiRedactor\Console\PiiScanCommand;
+use Padosoft\PiiRedactor\Detectors\Detector;
+use Padosoft\PiiRedactor\Exceptions\StrategyException;
+use Padosoft\PiiRedactor\Strategies\DropStrategy;
+use Padosoft\PiiRedactor\Strategies\HashStrategy;
+use Padosoft\PiiRedactor\Strategies\MaskStrategy;
+use Padosoft\PiiRedactor\Strategies\RedactionStrategy;
+use Padosoft\PiiRedactor\Strategies\TokeniseStrategy;
 
 /**
- * PiiRedactorServiceProvider — skeleton service provider for v0.0.1 scaffold.
- *
- * Implementation will follow during v4.0 development. For now this
- * is an empty no-op so Laravel package auto-discovery does not fail
- * with "Class not found" when a host application requires the package
- * via a path repository.
+ * Wires the package into a Laravel host:
+ *  - publishes the config file
+ *  - resolves the active RedactionStrategy from config('pii-redactor.strategy')
+ *  - builds a singleton RedactorEngine with the configured detector list
+ *  - registers the Pii facade accessor
+ *  - registers the pii:scan Artisan command
  */
 final class PiiRedactorServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        // Bindings will be added during v4.0 development.
+        $this->mergeConfigFrom(__DIR__.'/../config/pii-redactor.php', 'pii-redactor');
+
+        $this->app->singleton(RedactionStrategy::class, fn (Application $app): RedactionStrategy => $this->buildStrategy($app));
+
+        $this->app->singleton(RedactorEngine::class, function (Application $app): RedactorEngine {
+            $engine = new RedactorEngine($app->make(RedactionStrategy::class));
+
+            $detectors = (array) $app['config']->get('pii-redactor.detectors', []);
+            foreach ($detectors as $detectorClass) {
+                if (! is_string($detectorClass) || ! class_exists($detectorClass)) {
+                    continue;
+                }
+                /** @var Detector $detector */
+                $detector = $app->make($detectorClass);
+                $engine->register($detector);
+            }
+
+            return $engine;
+        });
+
+        $this->app->alias(RedactorEngine::class, 'pii-redactor');
     }
 
     public function boot(): void
     {
-        // Bootstrapping will be added during v4.0 development.
+        if ($this->app->runningInConsole()) {
+            $this->publishes([
+                __DIR__.'/../config/pii-redactor.php' => $this->app->configPath('pii-redactor.php'),
+            ], 'pii-redactor-config');
+
+            $this->commands([
+                PiiScanCommand::class,
+            ]);
+        }
+    }
+
+    private function buildStrategy(Application $app): RedactionStrategy
+    {
+        $config = $app['config'];
+        $name = (string) $config->get('pii-redactor.strategy', 'mask');
+
+        return match ($name) {
+            'mask' => new MaskStrategy((string) $config->get('pii-redactor.mask_token', '[REDACTED]')),
+            'hash' => new HashStrategy(
+                salt: $this->requireSalt($config->get('pii-redactor.salt')),
+                hexLength: (int) $config->get('pii-redactor.hash_hex_length', 8),
+            ),
+            'tokenise' => new TokeniseStrategy(
+                salt: $this->requireSalt($config->get('pii-redactor.salt')),
+            ),
+            'drop' => new DropStrategy,
+            default => throw new StrategyException(sprintf(
+                'Unknown PII redaction strategy [%s]. Valid: mask, hash, tokenise, drop.',
+                $name,
+            )),
+        };
+    }
+
+    private function requireSalt(mixed $raw): string
+    {
+        $salt = is_string($raw) ? $raw : '';
+        if ($salt === '') {
+            throw new StrategyException(
+                'PII_REDACTOR_SALT must be a non-empty string when using hash or tokenise strategies.',
+            );
+        }
+
+        return $salt;
     }
 }

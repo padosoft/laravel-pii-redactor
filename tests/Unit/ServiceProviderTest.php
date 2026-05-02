@@ -4,27 +4,22 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Tests\Unit;
 
+use Illuminate\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
+use Padosoft\PiiRedactor\Detectors\EmailDetector;
+use Padosoft\PiiRedactor\Exceptions\StrategyException;
 use Padosoft\PiiRedactor\PiiRedactorServiceProvider;
+use Padosoft\PiiRedactor\RedactorEngine;
+use Padosoft\PiiRedactor\Strategies\HashStrategy;
+use Padosoft\PiiRedactor\Strategies\MaskStrategy;
+use Padosoft\PiiRedactor\Strategies\RedactionStrategy;
+use Padosoft\PiiRedactor\Strategies\TokeniseStrategy;
 
 /**
- * Smoke coverage for the v0.0.1 scaffold.
- *
- * The package currently ships an empty no-op `PiiRedactorServiceProvider`;
- * real bindings land during v4.0 development. This test pins the
- * scaffold's two non-negotiable contracts so a future regression in
- * the auto-discovery wiring fails CI immediately:
- *
- *   1. The provider is a true `Illuminate\Support\ServiceProvider`
- *      subclass (auto-discovery requires this).
- *   2. `register()` and `boot()` execute cleanly when invoked
- *      directly on a Testbench app instance — both are no-ops in
- *      v0.0.1, so the test simply exercises the code path and
- *      asserts that no exception escaped.
- *
- * When v4.0 brings real bindings, replace these assertions with
- * coverage of the actual public surface.
+ * Wires the service provider into Testbench and asserts that the public
+ * surface (engine, facade accessor, default strategy) resolves to the
+ * shapes the README documents.
  */
 final class ServiceProviderTest extends TestCase
 {
@@ -36,7 +31,16 @@ final class ServiceProviderTest extends TestCase
         return [PiiRedactorServiceProvider::class];
     }
 
-    public function test_service_provider_is_a_laravel_service_provider_subclass(): void
+    /**
+     * @param  Application  $app
+     */
+    protected function defineEnvironment($app): void
+    {
+        $app['config']->set('pii-redactor.strategy', 'mask');
+        $app['config']->set('pii-redactor.salt', 'test-salt-do-not-use-in-prod');
+    }
+
+    public function test_provider_is_a_laravel_service_provider_subclass(): void
     {
         $reflection = new \ReflectionClass(PiiRedactorServiceProvider::class);
 
@@ -46,23 +50,73 @@ final class ServiceProviderTest extends TestCase
         );
     }
 
-    public function test_register_and_boot_complete_without_throwing(): void
+    public function test_engine_is_resolved_with_configured_detectors(): void
     {
-        // Construct a fresh provider and invoke both methods directly
-        // — Testbench's setUp() also calls them, but invoking
-        // explicitly here means a future regression that throws from
-        // either method fails THIS test with a clear stack trace
-        // instead of failing the whole TestCase setUp(). Both
-        // methods are no-ops in the v0.0.1 scaffold, so reaching the
-        // assertion is itself the green signal.
-        $provider = new PiiRedactorServiceProvider($this->app);
+        /** @var RedactorEngine $engine */
+        $engine = $this->app->make(RedactorEngine::class);
 
-        $provider->register();
-        $provider->boot();
+        $this->assertInstanceOf(RedactorEngine::class, $engine);
+        $this->assertNotEmpty($engine->detectors());
+        $this->assertArrayHasKey('email', $engine->detectors());
+        $this->assertInstanceOf(EmailDetector::class, $engine->detectors()['email']);
+    }
 
-        $this->assertTrue(
-            $this->app->providerIsLoaded(PiiRedactorServiceProvider::class),
-            'Testbench should have registered the provider during setUp().',
-        );
+    public function test_facade_alias_resolves_to_the_engine_singleton(): void
+    {
+        /** @var RedactorEngine $a */
+        $a = $this->app->make('pii-redactor');
+        /** @var RedactorEngine $b */
+        $b = $this->app->make(RedactorEngine::class);
+
+        $this->assertSame($a, $b);
+    }
+
+    public function test_default_strategy_is_mask(): void
+    {
+        /** @var RedactionStrategy $strategy */
+        $strategy = $this->app->make(RedactionStrategy::class);
+
+        $this->assertInstanceOf(MaskStrategy::class, $strategy);
+    }
+
+    public function test_hash_strategy_is_built_when_configured(): void
+    {
+        $this->app['config']->set('pii-redactor.strategy', 'hash');
+        $this->app->forgetInstance(RedactionStrategy::class);
+
+        /** @var RedactionStrategy $strategy */
+        $strategy = $this->app->make(RedactionStrategy::class);
+
+        $this->assertInstanceOf(HashStrategy::class, $strategy);
+    }
+
+    public function test_tokenise_strategy_is_built_when_configured(): void
+    {
+        $this->app['config']->set('pii-redactor.strategy', 'tokenise');
+        $this->app->forgetInstance(RedactionStrategy::class);
+
+        /** @var RedactionStrategy $strategy */
+        $strategy = $this->app->make(RedactionStrategy::class);
+
+        $this->assertInstanceOf(TokeniseStrategy::class, $strategy);
+    }
+
+    public function test_unknown_strategy_throws(): void
+    {
+        $this->app['config']->set('pii-redactor.strategy', 'made-up');
+        $this->app->forgetInstance(RedactionStrategy::class);
+
+        $this->expectException(StrategyException::class);
+        $this->app->make(RedactionStrategy::class);
+    }
+
+    public function test_hash_strategy_requires_salt(): void
+    {
+        $this->app['config']->set('pii-redactor.strategy', 'hash');
+        $this->app['config']->set('pii-redactor.salt', '');
+        $this->app->forgetInstance(RedactionStrategy::class);
+
+        $this->expectException(StrategyException::class);
+        $this->app->make(RedactionStrategy::class);
     }
 }

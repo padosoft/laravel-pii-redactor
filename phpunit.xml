@@ -4,10 +4,24 @@
          bootstrap="vendor/autoload.php"
          colors="true"
          cacheDirectory=".phpunit.cache"
+         defaultTestSuite="Unit"
          executionOrder="random">
     <testsuites>
+        <!-- Default suite: offline. Pure deterministic detectors + strategies. CI runs this. -->
         <testsuite name="Unit">
             <directory>tests/Unit</directory>
+        </testsuite>
+
+        <!-- Architecture suite: standalone-agnostic invariants. -->
+        <testsuite name="Architecture">
+            <directory>tests/Architecture</directory>
+        </testsuite>
+
+        <!-- Opt-in Live suite: scaffold for v0.2+ scenarios needing real external resources
+             (e.g. NER service, LLM-backed detector). Every Live test self-skips unless
+             PII_REDACTOR_LIVE=1 is set. NOT run in CI. -->
+        <testsuite name="Live">
+            <directory>tests/Live</directory>
         </testsuite>
     </testsuites>
     <source>
