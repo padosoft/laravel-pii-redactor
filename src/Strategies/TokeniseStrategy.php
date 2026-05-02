@@ -95,13 +95,22 @@ final class TokeniseStrategy implements RedactionStrategy
      * Restore a previously-dumped map. Used to recover state across
      * process boundaries before v0.2's persistent TokenStore lands.
      *
+     * The reverse index is fully reconstructed so that subsequent calls to
+     * apply() reuse the tokens already in the map instead of minting new ones.
+     *
      * @param  array<string, string>  $map
      */
     public function loadMap(array $map): void
     {
         $this->tokenToOriginal = $map;
         $this->reverseIndex = [];
-        // Reverse index is rebuilt lazily on next apply(); not strictly
-        // needed for detokenisation.
+
+        // Token format: [tok:<detector>:<8hex>] — parse the detector name so
+        // the reverse index key (<detector>:<original>) can be reconstructed.
+        foreach ($map as $token => $original) {
+            if (preg_match('/^\[tok:([^:]+):[0-9a-f]{8}\]$/', $token, $m)) {
+                $this->reverseIndex[$m[1].':'.$original] = $token;
+            }
+        }
     }
 }

@@ -13,13 +13,16 @@ use Padosoft\PiiRedactor\Strategies\RedactionStrategy;
 /**
  * Core engine — orchestrates registered detectors against a strategy.
  *
- * The engine is stateful only with respect to the registered detector list
- * and the active default strategy. Calls to redact() / scan() are pure
- * functions of (text, registered detectors).
+ * The engine is stateful only with respect to the registered detector list,
+ * the active default strategy, and the enabled flag. Calls to redact() /
+ * scan() are pure functions of (text, registered detectors).
  *
  * Overlap policy: when two detectors match overlapping byte ranges, the
  * earlier (lower-offset) detection wins; ties are broken by longer match.
  * This is deterministic and predictable; callers can audit it via scan().
+ *
+ * Enabled flag: when false, redact() returns the original text unchanged
+ * (scan() always runs regardless). Mirrors the pii-redactor.enabled config key.
  */
 final class RedactorEngine
 {
@@ -30,6 +33,7 @@ final class RedactorEngine
 
     public function __construct(
         private RedactionStrategy $strategy,
+        private bool $enabled = true,
     ) {}
 
     public function register(Detector $detector): void
@@ -69,10 +73,23 @@ final class RedactorEngine
         return $this->strategy;
     }
 
+    public function isEnabled(): bool
+    {
+        return $this->enabled;
+    }
+
     public function withStrategy(RedactionStrategy $strategy): self
     {
         $clone = clone $this;
         $clone->strategy = $strategy;
+
+        return $clone;
+    }
+
+    public function withEnabled(bool $enabled): self
+    {
+        $clone = clone $this;
+        $clone->enabled = $enabled;
 
         return $clone;
     }
@@ -84,7 +101,7 @@ final class RedactorEngine
 
     public function redact(string $text, ?RedactionStrategy $override = null): string
     {
-        if ($text === '') {
+        if (! $this->enabled || $text === '') {
             return $text;
         }
 

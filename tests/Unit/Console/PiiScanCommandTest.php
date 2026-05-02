@@ -50,4 +50,10 @@ final class PiiScanCommandTest extends TestCase
         $this->artisan('pii:scan', ['path' => 'x', '--from' => 'stdin'])
             ->assertExitCode(1);
     }
+
+    public function test_scan_returns_code_1_when_no_arguments_provided(): void
+    {
+        $this->artisan('pii:scan')
+            ->assertExitCode(1);
+    }
 }

@@ -65,6 +65,21 @@ final class TokeniseStrategyTest extends TestCase
         $this->assertSame('one@x.com', $b->detokenise($token));
     }
 
+    public function test_apply_after_load_map_reuses_original_token(): void
+    {
+        $a = new TokeniseStrategy(salt: 's');
+        $original = $a->apply('one@x.com', 'email');
+        $map = $a->dumpMap();
+
+        // Load the map into a fresh strategy; apply() must return the
+        // SAME token as the original session, not mint a new one.
+        $b = new TokeniseStrategy(salt: 's');
+        $b->loadMap($map);
+
+        $reissued = $b->apply('one@x.com', 'email');
+        $this->assertSame($original, $reissued);
+    }
+
     public function test_rejects_empty_salt(): void
     {
         $this->expectException(StrategyException::class);

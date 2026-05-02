@@ -119,4 +119,17 @@ final class ServiceProviderTest extends TestCase
         $this->expectException(StrategyException::class);
         $this->app->make(RedactionStrategy::class);
     }
+
+    public function test_disabled_engine_bypasses_redaction(): void
+    {
+        $this->app['config']->set('pii-redactor.enabled', false);
+        $this->app->forgetInstance(RedactorEngine::class);
+
+        /** @var RedactorEngine $engine */
+        $engine = $this->app->make(RedactorEngine::class);
+
+        $this->assertFalse($engine->isEnabled());
+        $input = 'Email: mario.rossi@example.com';
+        $this->assertSame($input, $engine->redact($input));
+    }
 }

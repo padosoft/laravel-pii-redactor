@@ -38,6 +38,12 @@ final class PiiScanCommand extends Command
             return 1;
         }
 
+        if ($from !== 'stdin' && $path === null) {
+            $this->components->error('Provide a file path or use --from=stdin.');
+
+            return 1;
+        }
+
         $text = $this->readInput($path, $from);
         if ($text === null) {
             return 2;

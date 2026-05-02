@@ -32,7 +32,10 @@ final class PiiRedactorServiceProvider extends ServiceProvider
         $this->app->singleton(RedactionStrategy::class, fn (Application $app): RedactionStrategy => $this->buildStrategy($app));
 
         $this->app->singleton(RedactorEngine::class, function (Application $app): RedactorEngine {
-            $engine = new RedactorEngine($app->make(RedactionStrategy::class));
+            $engine = new RedactorEngine(
+                $app->make(RedactionStrategy::class),
+                (bool) $app['config']->get('pii-redactor.enabled', true),
+            );
 
             $detectors = (array) $app['config']->get('pii-redactor.detectors', []);
             foreach ($detectors as $detectorClass) {

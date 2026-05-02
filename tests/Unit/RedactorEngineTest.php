@@ -139,4 +139,36 @@ final class RedactorEngineTest extends TestCase
         $this->assertSame(DropStrategy::class, $clone->strategy()::class);
         $this->assertSame(MaskStrategy::class, $engine->strategy()::class);
     }
+
+    public function test_disabled_engine_returns_text_unchanged(): void
+    {
+        $engine = new RedactorEngine(new MaskStrategy, enabled: false);
+        $engine->register(new EmailDetector);
+
+        $input = 'Contact: a@x.io for details.';
+        $this->assertSame($input, $engine->redact($input));
+    }
+
+    public function test_with_enabled_returns_a_clone(): void
+    {
+        $engine = new RedactorEngine(new MaskStrategy);
+        $engine->register(new EmailDetector);
+
+        $disabled = $engine->withEnabled(false);
+
+        $this->assertNotSame($engine, $disabled);
+        $this->assertTrue($engine->isEnabled());
+        $this->assertFalse($disabled->isEnabled());
+    }
+
+    public function test_scan_runs_even_when_engine_disabled(): void
+    {
+        $engine = new RedactorEngine(new MaskStrategy, enabled: false);
+        $engine->register(new EmailDetector);
+
+        $report = $engine->scan('Email: a@x.io.');
+
+        // scan() is always active regardless of the enabled flag.
+        $this->assertSame(1, $report->total());
+    }
 }

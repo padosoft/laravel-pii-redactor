@@ -19,6 +19,8 @@ use Padosoft\PiiRedactor\Strategies\RedactionStrategy;
  * @method static void extend(string $alias, Detector $detector)
  * @method static array<string,Detector> detectors()
  * @method static RedactionStrategy strategy()
+ * @method static bool isEnabled()
+ * @method static RedactorEngine withEnabled(bool $enabled)
  *
  * @see RedactorEngine
  */
