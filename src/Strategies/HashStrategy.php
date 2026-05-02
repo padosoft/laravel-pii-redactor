@@ -8,9 +8,14 @@ use Padosoft\PiiRedactor\Exceptions\StrategyException;
 
 /**
  * Replaces every detection with a salted SHA-256 prefix in the form
- * `[hash:abc123ef]` (8-char hex by default). Deterministic — identical
- * input under the same salt produces the same hash, which is useful for
- * downstream joins on pseudonymised data without revealing the original.
+ * `[hash:<hex>]` (16-char hex by default = 64-bit namespace). Deterministic —
+ * identical input under the same salt produces the same hash, which is useful
+ * for downstream joins on pseudonymised data without revealing the original.
+ *
+ * The 16-char default matches the `hash_hex_length` config key default so that
+ * constructing the strategy directly or via the service provider produces the
+ * same output length. Lower values increase the chance of hash collisions
+ * (at 8 hex chars the birthday bound is reached at ~30k distinct values).
  *
  * The salt MUST be set explicitly (constructor) or via the configured env
  * var; an empty salt would cause cross-deployment leakage of identical
@@ -20,7 +25,7 @@ final class HashStrategy implements RedactionStrategy
 {
     public function __construct(
         private readonly string $salt,
-        private readonly int $hexLength = 8,
+        private readonly int $hexLength = 16,
     ) {
         if ($salt === '') {
             throw new StrategyException(

@@ -71,7 +71,7 @@ Every detector is a pure function of its input. No external HTTP call, no per-to
 
 ### 3. Strategy is a runtime decision, not a compile-time one
 
-The same detected match can be **masked** (`[REDACTED]` for human-facing logs), **hashed** (`[hash:abc123ef]` for cross-record joins on pseudonymous data), **tokenised** (`[tok:email:abc123ef]` with a reversible salt-derived map for forensic recovery), or **dropped** (empty string for forwarding to lossy systems). Switching strategy is a one-line override on `Pii::redact($text, new HashStrategy(...))` — no detector code changes.
+The same detected match can be **masked** (`[REDACTED]` for human-facing logs), **hashed** (`[hash:abc123ef01234567]` for cross-record joins on pseudonymous data), **tokenised** (`[tok:email:abc123ef01234567]` with a reversible salt-derived map for forensic recovery), or **dropped** (empty string for forwarding to lossy systems). Switching strategy is a one-line override on `Pii::redact($text, new HashStrategy(...))` — no detector code changes.
 
 ### 4. Detector overlap is resolved deterministically
 
@@ -159,7 +159,7 @@ $report->countsByDetector(); // ['email' => 1, 'iban' => 1]
 // One-off strategy override (without changing config).
 use Padosoft\PiiRedactor\Strategies\HashStrategy;
 $hashed = Pii::redact('mario@example.com', new HashStrategy(salt: env('PII_REDACTOR_SALT')));
-// "[hash:f72a1b09]"
+// "[hash:f72a1b09abc12345]"  (16 hex chars — 64-bit namespace)
 ```
 
 ---

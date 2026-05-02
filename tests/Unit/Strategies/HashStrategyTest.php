@@ -20,6 +20,17 @@ final class HashStrategyTest extends TestCase
         $this->assertMatchesRegularExpression('/^\[hash:[0-9a-f]{8}\]$/', $out);
     }
 
+    public function test_default_hex_length_is_16(): void
+    {
+        // Constructor default must match the config default (hash_hex_length = 16)
+        // so that constructing HashStrategy directly or via the service provider
+        // produces the same output length.
+        $strategy = new HashStrategy(salt: 'pepper-2026');
+        $out = $strategy->apply('mario.rossi@example.com', 'email');
+
+        $this->assertMatchesRegularExpression('/^\[hash:[0-9a-f]{16}\]$/', $out);
+    }
+
     public function test_is_deterministic_for_same_input_and_salt(): void
     {
         $a = new HashStrategy(salt: 'salt-1');
