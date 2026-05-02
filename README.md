@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-pii-redactor.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-pii-redactor)
 
-> **Italian-first PII redaction for Laravel — deterministic regex + checksum-validated detectors for `codice fiscale`, `partita IVA`, `IBAN`, plus the EU staples (email, phone, credit card, addresses) and a pluggable strategy layer (mask / hash / tokenise / drop). Zero external services, zero LLM cost, GDPR + EU AI Act ready.**
+> **Italian-first PII redaction for Laravel — deterministic regex + checksum-validated detectors for `codice fiscale`, `partita IVA`, `IBAN`, plus the EU staples (email, phone, credit card) and a pluggable strategy layer (mask / hash / tokenise / drop). Zero external services, zero LLM cost, GDPR + EU AI Act ready.**
 
 `laravel-pii-redactor` is the seventh deliverable of the [Padosoft v4.0 cycle](https://github.com/lopadova/AskMyDocs) (W7). It is a community Apache-2.0 package, **standalone-agnostic** (zero references to AskMyDocs / sister packages), and ships with the Padosoft AI vibe-coding pack so you can extend it with Claude Code or GitHub Copilot in minutes — not days.
 
@@ -95,7 +95,7 @@ When two detectors emit overlapping byte ranges (e.g. an email-shaped string tha
 - **4 pluggable redaction strategies**: `MaskStrategy`, `HashStrategy` (deterministic, salt-derived, namespaced per detector), `TokeniseStrategy` (reversible pseudonymisation with `detokenise()` + `dumpMap()` / `loadMap()` for cross-process recovery), `DropStrategy`.
 - **Typed `DetectionReport`** — `total()`, `countsByDetector()`, `samplesByDetector(cap)`, `toArray()`. Stable JSON shape for downstream auditors.
 - **`Pii::extend()` registry** for custom detectors (`custom_codice_iscrizione_albo`, project-specific account ids, etc.).
-- **Artisan command** — `pii:scan path/to/file.txt --pretty` or `cat data | pii:scan --from=stdin`.
+- **Artisan command** — `php artisan pii:scan path/to/file.txt --pretty` or `cat data | php artisan pii:scan --from=stdin` (samples masked by default; pass `--show-samples` for raw values during interactive forensics).
 - **Standalone-agnostic** — zero coupling to AskMyDocs / sister packages, enforced by an architecture test.
 - **PHP 8.3 / 8.4 / 8.5** × **Laravel 12 / 13** matrix. Pint + PHPStan level 6 + 30+ PHPUnit tests on every push.
 - **Padosoft AI vibe-coding pack** (`.claude/`) — Claude Code skills (R36 review loop, R10–R37 rules) + agents (review pre-push) + commands (`/create-job`, `/domain-scaffold`).
@@ -212,8 +212,28 @@ Pii::extend('custom_albo', new CodiceIscrizioneAlboDetector);
 ### CLI — scan a file in CI
 
 ```bash
+# Samples are masked by default to keep raw PII out of CI logs.
 php artisan pii:scan storage/exports/chat-log.txt --pretty
+
+# Pass --show-samples for interactive forensics on a trusted terminal.
+php artisan pii:scan storage/exports/chat-log.txt --pretty --show-samples
 ```
+
+Default (masked-samples) output:
+
+```json
+{
+    "total": 4,
+    "counts": { "email": 2, "iban": 1, "p_iva": 1 },
+    "samples": {
+        "email": ["[email]", "[email]"],
+        "iban": ["[iban]"],
+        "p_iva": ["[p_iva]"]
+    }
+}
+```
+
+With `--show-samples` (raw values restored):
 
 ```json
 {
@@ -233,12 +253,13 @@ php artisan pii:scan storage/exports/chat-log.txt --pretty
 
 Every key in `config/pii-redactor.php` is documented inline. Highlights:
 
-- `enabled` — master switch. When `false`, `Pii::redact()` returns input unchanged.
+- `enabled` — master switch. When `false`, `Pii::redact()` returns input unchanged. Wired all the way down to the `RedactorEngine` constructor so `PII_REDACTOR_ENABLED=false` in `.env` short-circuits redaction without code changes.
 - `strategy` — `mask | hash | tokenise | drop`. Default mask token is `[REDACTED]`.
 - `salt` — required for `hash` and `tokenise`. Treat like `APP_KEY`.
 - `mask_token` — override the default mask string.
-- `hash_hex_length` — between 4 and 64; default 8.
-- `detectors` — whitelist of detector classes the ServiceProvider auto-registers. Removing an entry disables the detector. Custom detectors registered via `Pii::extend()` bypass this list.
+- `hash_hex_length` — between 4 and 64; default **16** (= 64-bit namespace, well above the birthday bound for any realistic corpus). Drop to 8 only if you accept that downstream joins on `[hash:...]` may collapse unrelated records once the dataset crosses ~30k uniques.
+- `token_hex_length` — between 8 and 64; default **16** for the `[tok:<detector>:<id>]` id portion. Same collision argument as `hash_hex_length`.
+- `detectors` — whitelist of detector classes the ServiceProvider auto-registers. Removing an entry disables the detector. Custom detectors registered via `Pii::extend()` bypass this list. Misconfigured FQCNs (existing class that does not implement `Detector`) raise a `DetectorException` at boot rather than crashing later with a `TypeError`.
 - `audit_trail_enabled` — reserved for v0.2 (count-only events emitted to host listeners).
 
 ---
@@ -267,7 +288,7 @@ src/
  │    ├── TokeniseStrategy.php             reversible — detokenise() / dump+load map
  │    └── DropStrategy.php
  ├── Reports/
- │    └── DetectionReport.php              total() / counts() / samples() / toArray()
+ │    └── DetectionReport.php              total() / countsByDetector() / samplesByDetector() / toArray()
  └── Exceptions/
       ├── PiiRedactorException.php         non-final base
       ├── DetectorException.php
@@ -305,7 +326,7 @@ The `Live` suite is **opt-in** and reserved for v0.2+ scenarios that require a r
 
 ## Roadmap
 
-- **v0.1.0 (W7, this PR)** — 6 deterministic detectors, 4 strategies, `Pii::extend()`, `pii:scan` command, ~30 PHPUnit tests, standalone-agnostic invariant.
+- **v0.1.0 (W7, this PR)** — 6 deterministic detectors (`codice_fiscale`, `p_iva`, `iban`, `email`, `phone_it`, `credit_card`), 4 strategies, `Pii::extend()`, `pii:scan` command (masked samples by default), ~80 PHPUnit tests, standalone-agnostic invariant. **No address detector in v0.1** — the heuristic Italian street-address detector (`address_it`) is parked for v0.2.
 - **v0.2.0** — opt-in NER layer (PERSON / ORG / LOC) behind `PII_REDACTOR_NER_DRIVER`. `audit_trail_enabled` event emission. Persistent `TokenStore` (cache / DB / KMS) for cross-process detokenisation. Heuristic Italian street-address detector (`address_it`).
 - **v0.3.0** — Italian custom-rule YAML for tenant-specific identifiers. Provider-agnostic NER drivers (HuggingFace + spaCy).
 - **v1.0.0** — stable surface, semver guarantees, formal compatibility matrix vs Laravel + PHP LTS lines.

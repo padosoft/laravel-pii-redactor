@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\PiiRedactor\Detectors;
 
 /**
- * Detects Italian phone numbers — landline + mobile + emergency.
+ * Detects Italian phone numbers — landline + mobile.
  *
  * Accepted forms (with optional country prefix and grouping characters):
  *  - `+39 333 1234567` / `0039 333 1234567` / `333 1234567`
@@ -15,16 +15,28 @@ namespace Padosoft\PiiRedactor\Detectors;
  * The pattern intentionally requires the leading prefix or a national
  * mobile/landline trunk so that bare 10-digit strings (P.IVA territory,
  * fiscal identifiers) do not accidentally match.
+ *
+ * Three-digit emergency numbers (112, 113, 115, 118, etc.) are NOT
+ * matched — they are not considered PII for redaction purposes and the
+ * minimum-9-digits guard rejects them on length anyway. The class
+ * comment used to claim coverage of those numbers; that was incorrect.
+ *
+ * The pattern is bounded by a non-digit lookbehind / lookahead so it
+ * cannot start in the middle of a longer numeric string (for example,
+ * an arbitrary identifier like `id-99993331234567` no longer matches
+ * its tail as a phone number).
  */
 final class PhoneItalianDetector implements Detector
 {
     private const PATTERN =
-        '/(?:(?:\+|00)39[\s.\-]?)?'.   // optional country prefix.
+        '/(?<![0-9+])'.                // non-digit / non-plus lookbehind.
+        '(?:(?:\+|00)39[\s.\-]?)?'.    // optional country prefix.
         '(?:'.
-        '3\d{2}[\s.\-]?\d{6,7}'.   // mobile: 3xx xxxxxxx (3 + 6/7 digits).
+        '3\d{2}[\s.\-]?\d{6,7}'.       // mobile: 3xx xxxxxxx (3 + 6/7 digits).
         '|'.
-        '0\d{1,3}[\s.\-]?\d{5,8}'. // landline: 0[area] [number].
-        ')/';
+        '0\d{1,3}[\s.\-]?\d{5,8}'.     // landline: 0[area] [number].
+        ')'.
+        '(?!\d)/';                     // non-digit lookahead.
 
     public function name(): string
     {

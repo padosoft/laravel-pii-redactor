@@ -17,8 +17,40 @@ final class TokeniseStrategyTest extends TestCase
 
         $token = $strategy->apply('mario.rossi@example.com', 'email');
 
-        $this->assertMatchesRegularExpression('/^\[tok:email:[0-9a-f]{8}\]$/', $token);
+        // Default id width is 16 hex chars (= 64-bit namespace).
+        $this->assertMatchesRegularExpression('/^\[tok:email:[0-9a-f]{16}\]$/', $token);
         $this->assertSame('mario.rossi@example.com', $strategy->detokenise($token));
+    }
+
+    public function test_token_is_pure_function_of_inputs_regardless_of_encounter_order(): void
+    {
+        // Two strategies see the same value-of-interest but process other
+        // values in opposite orders before it. The token MUST be identical:
+        // apply() must depend only on (salt, detector, original), not on
+        // any in-instance running counter.
+        $a = new TokeniseStrategy(salt: 'shared-salt');
+        $a->apply('alpha@x.com', 'email');
+        $a->apply('beta@x.com', 'email');
+        $tokenFromA = $a->apply('mario.rossi@example.com', 'email');
+
+        $b = new TokeniseStrategy(salt: 'shared-salt');
+        $tokenFromB = $b->apply('mario.rossi@example.com', 'email');
+
+        $this->assertSame($tokenFromA, $tokenFromB);
+    }
+
+    public function test_id_hex_length_is_configurable(): void
+    {
+        $strategy = new TokeniseStrategy(salt: 's', idHexLength: 32);
+        $token = $strategy->apply('one@x.com', 'email');
+
+        $this->assertMatchesRegularExpression('/^\[tok:email:[0-9a-f]{32}\]$/', $token);
+    }
+
+    public function test_rejects_id_hex_length_below_8_or_above_64(): void
+    {
+        $this->expectException(StrategyException::class);
+        new TokeniseStrategy(salt: 's', idHexLength: 7);
     }
 
     public function test_same_input_produces_same_token(): void

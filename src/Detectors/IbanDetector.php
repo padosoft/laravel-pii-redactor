@@ -24,10 +24,16 @@ final class IbanDetector implements Detector
      * across the following word). Compact form is digit-tight; spaced form
      * uses 4-char groups separated by single spaces with an optional
      * 1..4-char tail group.
+     *
+     * The compact lower bound is `{11,30}` so total compact length lands
+     * between 15 (NO) and 34 (LC/MT). The spaced form's first repetition
+     * count is `{1,7}` (NOT `{2,7}`) so 15-char IBANs typed as `NO93 8601
+     * 1117 947` (one mandatory 4-char block + an optional 1..4-char tail)
+     * are still detected.
      */
     private const PATTERN_COMPACT = '/\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/i';
 
-    private const PATTERN_SPACED = '/\b[A-Z]{2}\d{2} [A-Z0-9]{4}(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?\b/i';
+    private const PATTERN_SPACED = '/\b[A-Z]{2}\d{2} [A-Z0-9]{4}(?: [A-Z0-9]{4}){1,7}(?: [A-Z0-9]{1,4})?\b/i';
 
     /**
      * Country -> total IBAN length (including the 2-char country prefix +
@@ -126,14 +132,21 @@ final class IbanDetector implements Detector
     }
 
     /**
-     * mod-97 over a numeric string of arbitrary length, processing 9-digit
-     * chunks to stay under PHP_INT_MAX on every supported platform.
+     * mod-97 over a numeric string of arbitrary length.
+     *
+     * The chunk size is 7 digits (NOT 9): with `$remainder` already
+     * occupying up to 2 digits, the concatenated value reaches at most
+     * 9 digits (max ~999_999_999), which fits comfortably under
+     * PHP_INT_MAX on 32-bit PHP (PHP_INT_MAX ≈ 2.1e9). A 9-digit chunk
+     * appended to a 2-digit remainder would yield up to 11 digits and
+     * overflow on 32-bit builds, so the previous "9-digit chunks for
+     * platform safety" comment was incorrect.
      */
     private function mod97(string $numeric): int
     {
         $remainder = 0;
-        for ($i = 0, $n = strlen($numeric); $i < $n; $i += 9) {
-            $chunk = (string) $remainder.substr($numeric, $i, 9);
+        for ($i = 0, $n = strlen($numeric); $i < $n; $i += 7) {
+            $chunk = (string) $remainder.substr($numeric, $i, 7);
             $remainder = ((int) $chunk) % 97;
         }
 

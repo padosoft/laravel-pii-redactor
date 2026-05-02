@@ -8,6 +8,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\PiiRedactor\Console\PiiScanCommand;
 use Padosoft\PiiRedactor\Detectors\Detector;
+use Padosoft\PiiRedactor\Exceptions\DetectorException;
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
 use Padosoft\PiiRedactor\Strategies\DropStrategy;
 use Padosoft\PiiRedactor\Strategies\HashStrategy;
@@ -42,8 +43,14 @@ final class PiiRedactorServiceProvider extends ServiceProvider
                 if (! is_string($detectorClass) || ! class_exists($detectorClass)) {
                     continue;
                 }
-                /** @var Detector $detector */
                 $detector = $app->make($detectorClass);
+                if (! $detector instanceof Detector) {
+                    throw new DetectorException(sprintf(
+                        'Detector class [%s] in config[pii-redactor.detectors] must implement %s.',
+                        $detectorClass,
+                        Detector::class,
+                    ));
+                }
                 $engine->register($detector);
             }
 
@@ -75,10 +82,11 @@ final class PiiRedactorServiceProvider extends ServiceProvider
             'mask' => new MaskStrategy((string) $config->get('pii-redactor.mask_token', '[REDACTED]')),
             'hash' => new HashStrategy(
                 salt: $this->requireSalt($config->get('pii-redactor.salt')),
-                hexLength: (int) $config->get('pii-redactor.hash_hex_length', 8),
+                hexLength: (int) $config->get('pii-redactor.hash_hex_length', 16),
             ),
             'tokenise' => new TokeniseStrategy(
                 salt: $this->requireSalt($config->get('pii-redactor.salt')),
+                idHexLength: (int) $config->get('pii-redactor.token_hex_length', 16),
             ),
             'drop' => new DropStrategy,
             default => throw new StrategyException(sprintf(

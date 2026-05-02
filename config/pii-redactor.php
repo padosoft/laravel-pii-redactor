@@ -64,10 +64,29 @@ return [
     |--------------------------------------------------------------------------
     |
     | Number of hex chars from the SHA-256 prefix to emit inside
-    | `[hash:...]` substitutions. Must be between 4 and 64.
+    | `[hash:...]` substitutions. Must be between 4 and 64. The 16-char
+    | default gives a 64-bit namespace, comfortably above the birthday
+    | bound for any realistic corpus (collisions stay theoretical until
+    | tens of millions of distinct values). Drop to 8 only if you
+    | accept that downstream joins on `[hash:...]` may collapse
+    | unrelated records once the dataset crosses ~30k uniques.
     |
     */
-    'hash_hex_length' => (int) env('PII_REDACTOR_HASH_LENGTH', 8),
+    'hash_hex_length' => (int) env('PII_REDACTOR_HASH_LENGTH', 16),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Tokenise strategy hex length
+    |--------------------------------------------------------------------------
+    |
+    | Number of hex chars in the deterministic id portion of
+    | `[tok:<detector>:<id>]`. Must be between 8 and 64. Defaults to 16
+    | (= 64-bit namespace) so the reverse-map collision risk is
+    | negligible for any realistic corpus. Bump higher when working
+    | against a very large unique-value space; never drop below 8.
+    |
+    */
+    'token_hex_length' => (int) env('PII_REDACTOR_TOKEN_LENGTH', 16),
 
     /*
     |--------------------------------------------------------------------------

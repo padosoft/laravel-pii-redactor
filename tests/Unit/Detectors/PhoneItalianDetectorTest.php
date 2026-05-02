@@ -48,4 +48,24 @@ final class PhoneItalianDetectorTest extends TestCase
         $this->assertSame([], $detector->detect('Numero 123 troppo corto.'));
         $this->assertSame([], $detector->detect('Pin 06 fail.'));
     }
+
+    public function test_does_not_match_in_the_middle_of_a_longer_numeric_string(): void
+    {
+        // Without a non-digit boundary on either side of the pattern, a
+        // bare identifier like `id-99993331234567` would match its tail
+        // `3331234567` as a phone number. The lookbehind `(?<![0-9+])`
+        // and lookahead `(?!\d)` block that.
+        $detector = new PhoneItalianDetector;
+
+        $this->assertSame([], $detector->detect('Identificativo id-99993331234567 archiviato.'));
+        $this->assertSame([], $detector->detect('Hash 833312345678abc.'));
+    }
+
+    public function test_does_not_match_when_followed_by_more_digits(): void
+    {
+        $detector = new PhoneItalianDetector;
+
+        // 11+ contiguous mobile digits — the lookahead drops the match.
+        $this->assertSame([], $detector->detect('Numero 33312345678901 invalid.'));
+    }
 }

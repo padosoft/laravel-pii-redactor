@@ -8,6 +8,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use Padosoft\PiiRedactor\Detectors\EmailDetector;
+use Padosoft\PiiRedactor\Exceptions\DetectorException;
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
 use Padosoft\PiiRedactor\PiiRedactorServiceProvider;
 use Padosoft\PiiRedactor\RedactorEngine;
@@ -131,5 +132,18 @@ final class ServiceProviderTest extends TestCase
         $this->assertFalse($engine->isEnabled());
         $input = 'Email: mario.rossi@example.com';
         $this->assertSame($input, $engine->redact($input));
+    }
+
+    public function test_misconfigured_detector_class_throws_a_clean_error(): void
+    {
+        // An existing class that does NOT implement Detector — used to
+        // crash with a TypeError during boot. The provider now rejects
+        // it cleanly with a DetectorException naming the offending FQCN.
+        $this->app['config']->set('pii-redactor.detectors', [\stdClass::class]);
+        $this->app->forgetInstance(RedactorEngine::class);
+
+        $this->expectException(DetectorException::class);
+        $this->expectExceptionMessageMatches('/stdClass/');
+        $this->app->make(RedactorEngine::class);
     }
 }

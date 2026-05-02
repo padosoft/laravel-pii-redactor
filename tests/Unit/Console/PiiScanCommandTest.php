@@ -39,6 +39,35 @@ final class PiiScanCommandTest extends TestCase
         @unlink($tmp);
     }
 
+    public function test_scan_masks_samples_by_default(): void
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'pii-scan-');
+        $this->assertNotFalse($tmp);
+        file_put_contents($tmp, 'Email: mario.rossi@example.com.');
+
+        // The raw email value MUST NOT appear in the default output —
+        // running pii:scan in CI must not leak customer data into logs.
+        $this->artisan('pii:scan', ['path' => $tmp])
+            ->doesntExpectOutputToContain('mario.rossi@example.com')
+            ->expectsOutputToContain('"[email]"')
+            ->assertExitCode(0);
+
+        @unlink($tmp);
+    }
+
+    public function test_scan_emits_raw_samples_with_show_samples_flag(): void
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'pii-scan-');
+        $this->assertNotFalse($tmp);
+        file_put_contents($tmp, 'Email: mario.rossi@example.com.');
+
+        $this->artisan('pii:scan', ['path' => $tmp, '--show-samples' => true])
+            ->expectsOutputToContain('mario.rossi@example.com')
+            ->assertExitCode(0);
+
+        @unlink($tmp);
+    }
+
     public function test_scan_returns_non_zero_when_file_missing(): void
     {
         $this->artisan('pii:scan', ['path' => '/nonexistent/path/file.txt'])

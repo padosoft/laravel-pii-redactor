@@ -10,16 +10,27 @@ use Padosoft\PiiRedactor\Exceptions\StrategyException;
  * Reversible pseudonymisation strategy.
  *
  * Replaces each detection with a deterministic token in the form
- * `[tok:<detector>:<id>]` and stores the bidirectional mapping in process
- * memory for the lifetime of the strategy instance. Callers recover the
- * original via TokeniseStrategy::detokenise($token), or detokenise an
- * entire redacted string via TokeniseStrategy::detokeniseString($text).
+ * `[tok:<detector>:<id>]` where `<id>` is the SHA-256 prefix of
+ * `salt + ':' + detector + ':' + original`. The token is a pure
+ * function of those inputs — same value under the same salt always
+ * yields the same token, regardless of encounter order or whether
+ * other values were tokenised first. That property is what makes the
+ * tokens stable across process boundaries when the salt is shared.
  *
- * In v0.1 the map is in-memory only — restart of the process discards it.
- * v0.2 will introduce a pluggable TokenStore (cache / DB / KMS-encrypted
- * blob) so the map survives deploys. Until then, callers that need to
- * detokenise must hold onto the strategy instance, or persist the result
- * of TokeniseStrategy::dumpMap() themselves.
+ * The strategy keeps the bidirectional mapping in process memory so
+ * that detokenise() / detokeniseString() can reverse the redaction
+ * without consulting an external store. In v0.1 the map is in-memory
+ * only — a process restart discards it. v0.2 will introduce a
+ * pluggable TokenStore (cache / DB / KMS-encrypted blob) so the map
+ * survives deploys. Until then, callers that need to detokenise must
+ * either hold onto the strategy instance or persist the result of
+ * dumpMap() and restore it via loadMap().
+ *
+ * Token ID width is configurable through the constructor (default 16
+ * hex chars = 64 bits of namespace) so the chance of an accidental
+ * collision under typical workloads (low millions of distinct values)
+ * stays negligible. Bumping it to 32 hex chars effectively eliminates
+ * collision concerns at any realistic corpus size.
  */
 final class TokeniseStrategy implements RedactionStrategy
 {
@@ -33,14 +44,18 @@ final class TokeniseStrategy implements RedactionStrategy
      */
     private array $reverseIndex = [];
 
-    private int $sequence = 0;
-
     public function __construct(
         private readonly string $salt,
+        private readonly int $idHexLength = 16,
     ) {
         if ($salt === '') {
             throw new StrategyException(
                 'TokeniseStrategy requires a non-empty salt for deterministic id derivation.',
+            );
+        }
+        if ($idHexLength < 8 || $idHexLength > 64) {
+            throw new StrategyException(
+                'TokeniseStrategy idHexLength must be between 8 and 64 (default 16 = 64-bit namespace).',
             );
         }
     }
@@ -57,10 +72,10 @@ final class TokeniseStrategy implements RedactionStrategy
             return $this->reverseIndex[$key];
         }
 
-        // Salt + sequence keep the public token short while remaining
-        // unguessable for callers that only see the redacted text.
-        $this->sequence++;
-        $idHex = substr(hash('sha256', $this->salt.':'.$key.':'.$this->sequence), 0, 8);
+        // Pure function of (salt, detector, original): same value always
+        // hashes to the same id regardless of encounter order or prior
+        // calls, so tokens are stable across process boundaries.
+        $idHex = substr(hash('sha256', $this->salt.':'.$key), 0, $this->idHexLength);
         $token = '[tok:'.$detectorName.':'.$idHex.']';
 
         $this->tokenToOriginal[$token] = $original;
@@ -95,8 +110,9 @@ final class TokeniseStrategy implements RedactionStrategy
      * Restore a previously-dumped map. Used to recover state across
      * process boundaries before v0.2's persistent TokenStore lands.
      *
-     * The reverse index is fully reconstructed so that subsequent calls to
-     * apply() reuse the tokens already in the map instead of minting new ones.
+     * The reverse index is fully reconstructed by parsing the token
+     * format `[tok:<detector>:<hex>]` so subsequent apply() calls reuse
+     * the loaded tokens instead of minting new ones.
      *
      * @param  array<string, string>  $map
      */
@@ -105,10 +121,8 @@ final class TokeniseStrategy implements RedactionStrategy
         $this->tokenToOriginal = $map;
         $this->reverseIndex = [];
 
-        // Token format: [tok:<detector>:<8hex>] — parse the detector name so
-        // the reverse index key (<detector>:<original>) can be reconstructed.
         foreach ($map as $token => $original) {
-            if (preg_match('/^\[tok:([^:]+):[0-9a-f]{8}\]$/', $token, $m)) {
+            if (preg_match('/^\[tok:([^:]+):[0-9a-f]+\]$/', $token, $m) === 1) {
                 $this->reverseIndex[$m[1].':'.$original] = $token;
             }
         }

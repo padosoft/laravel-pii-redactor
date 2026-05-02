@@ -64,4 +64,29 @@ final class CodiceFiscaleDetectorTest extends TestCase
         $this->assertSame('RSSMRA85T10A562S', $hits[0]->value);
         $this->assertSame('NRELRT75D03H501K', $hits[1]->value);
     }
+
+    public function test_detects_single_position_omocodia_substitution(): void
+    {
+        // Canonical RSSMRA85T10A562S; position 14 (city digit '2')
+        // substituted with omocodia letter 'N'. The CIN recomputes to
+        // 'S' under the standard 1976 odd/even table once the
+        // substitution is normalised back to a digit.
+        $detector = new CodiceFiscaleDetector;
+        $hits = $detector->detect('Codice fiscale: RSSMRA85T10A56NS, archiviato.');
+
+        $this->assertCount(1, $hits);
+        $this->assertSame('RSSMRA85T10A56NS', $hits[0]->value);
+    }
+
+    public function test_detects_multi_position_omocodia_substitution(): void
+    {
+        // Same canonical, two substitutions: position 6 (year digit
+        // '8'->'U') and position 14 (city digit '2'->'N'). CIN remains
+        // 'S' after omocodia normalisation.
+        $detector = new CodiceFiscaleDetector;
+        $hits = $detector->detect('CF: RSSMRAU5T10A56NS rilasciato.');
+
+        $this->assertCount(1, $hits);
+        $this->assertSame('RSSMRAU5T10A56NS', $hits[0]->value);
+    }
 }
