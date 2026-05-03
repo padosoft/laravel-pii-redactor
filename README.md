@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-pii-redactor.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-pii-redactor)
 
-> **EU-first PII redaction for Laravel — deterministic regex + checksum-validated detectors organised into opt-in country packs (Italy ships built-in; Germany / Spain / France / Netherlands / Portugal land in v1.1+ as community packs), plus always-on multi-country detectors (email, IBAN mod-97 for every ISO 13616 country, credit card with Luhn) and a pluggable strategy layer (mask / hash / tokenise / drop) with persistent reverse-map storage (memory / database / cache), opt-in HuggingFace + spaCy NER drivers, and YAML custom-rule packs for tenant-specific identifiers. Zero external services in the default path, zero mandatory LLM cost, GDPR + EU AI Act ready.**
+> **EU-first PII redaction for Laravel — deterministic regex + checksum-validated detectors organised into opt-in country packs (Italy, Germany, Spain ship built-in; France / Netherlands / Portugal land in v1.2+), plus always-on multi-country detectors (email, IBAN mod-97 for every ISO 13616 country, credit card with Luhn) and a pluggable strategy layer (mask / hash / tokenise / drop) with persistent reverse-map storage (memory / database / cache), opt-in HuggingFace + spaCy NER drivers, and YAML custom-rule packs for tenant-specific identifiers. Zero external services in the default path, zero mandatory LLM cost, GDPR + EU AI Act ready.**
 
 `laravel-pii-redactor` is the seventh deliverable of the [Padosoft v4.0 cycle](https://github.com/lopadova/AskMyDocs) (W7). It is a community Apache-2.0 package, **standalone-agnostic** (zero references to AskMyDocs / sister packages), and ships with the Padosoft AI vibe-coding pack so you can extend it with Claude Code or GitHub Copilot in minutes — not days.
 
@@ -58,8 +58,11 @@ PII redaction is one of those domains where the existing options force a bad tra
 `laravel-pii-redactor` covers the **deterministic** layer. v1.0 ships:
 
 - **3 always-on multi-country detectors** — `email` (RFC-5321 shape), `iban` (ISO 13616 country-length table + mod-97 for **every** registered country, ~75), `credit_card` (Luhn).
-- **`ItalyPack` reference pack** — `codice_fiscale` (CIN checksum from the 1976 Decreto Ministeriale), `partita_iva` (Luhn-IT), `phone_it`, `address_it` (Italian street-address heuristic).
-- **`PackContract` interface + `DetectorPackRegistry`** — opt-in jurisdiction bundles. Operate in Italy only? Keep `ItalyPack`. Operate across the EU? Add `GermanyPack` / `SpainPack` / `FrancePack` (v1.1+). Operate outside Italy? Drop `ItalyPack` from the config.
+- **3 shipped country packs** (v1.1):
+  - **`ItalyPack`** — `codice_fiscale` (CIN checksum), `partita_iva` (Luhn-IT), `phone_it`, `address_it`.
+  - **`GermanyPack`** (v1.1) — `steuer_id` (mod-11 ISO 7064 per §139b AO), `ust_idnr` (BMF Method 30 per §27a UStG), `phone_de`, `address_de`.
+  - **`SpainPack`** (v1.1) — `dni` (23-letter checksum table per RD 1553/2005), `nie` (prefix-substituted DNI), `cif` (corporate ID), `phone_es`, `address_es`.
+- **`PackContract` interface + `DetectorPackRegistry`** — opt-in jurisdiction bundles. Operate in Italy only? Keep `ItalyPack`. Operate across the EU? Add `GermanyPack` / `SpainPack` (shipped v1.1) or `FrancePack` (v1.2+ candidate). Operate outside Italy? Drop `ItalyPack` from the config.
 - **4 pluggable replacement strategies** — `mask`, `hash`, `tokenise`, `drop`.
 - **3 token-store drivers** — `memory` (default), `database` (Eloquent + shipped migration), `cache` (Redis / Memcached / DynamoDB / array).
 - **2 production NER drivers (opt-in)** — `HuggingFaceNerDriver`, `SpaCyNerDriver`. Network calls fail open.
@@ -78,7 +81,7 @@ Five non-negotiable choices that drove the API:
 
 Every PII pipeline I have seen for Laravel either ignores European fiscal data or matches it with a bare regex that returns false positives on every retry CI run. **National identifiers need real code**: the Italian `codice fiscale` requires the official odd/even checksum table from the 1976 Decreto Ministeriale; the German Steuer-ID needs mod-11; the Spanish DNI needs a letter-checksum lookup; the French NIR needs mod-97. A regex alone won't do.
 
-Hence **country packs**. v1.0 ships `ItalyPack` as the reference implementation (4 Italian detectors with the full CIN checksum + Luhn-IT). The `PackContract` interface + `DetectorPackRegistry` make it trivial for the community to contribute `GermanyPack`, `SpainPack`, `FrancePack`, `NetherlandsPack`, `PortugalPack` — each as a self-contained bundle of detectors with checksum-source citations and 10/5 valid/invalid fixtures. v1.1 lands the first community packs.
+Hence **country packs**. v1.0 shipped `ItalyPack` as the reference implementation (4 Italian detectors with the full CIN checksum + Luhn-IT). v1.1 makes good on the promise with **two more concrete bundles** — `GermanyPack` (Steuer-ID mod-11 ISO 7064 per §139b AO + USt-IdNr BMF Method 30 per §27a UStG + German phone/address) and `SpainPack` (DNI 23-letter checksum table per RD 1553/2005 + NIE + CIF + Spanish phone/address). Both opt-in via a single FQCN in `config('pii-redactor.packs')`. The `PackContract` interface + `DetectorPackRegistry` make it equally trivial for the community to contribute `FrancePack`, `NetherlandsPack`, `PortugalPack` next — each as a self-contained bundle of detectors with checksum-source citations and 10/5 valid/invalid fixtures.
 
 Multi-country detectors (`email`, `iban` with mod-97 for every ISO 13616 country, `credit_card` with Luhn) stay always-on regardless of which packs you load — they have no jurisdictional flavour.
 
@@ -102,7 +105,7 @@ When two detectors emit overlapping byte ranges (e.g. an email-shaped string tha
 
 ## Features at a glance
 
-- **🇪🇺 EU country pack architecture** — `PackContract` interface + `DetectorPackRegistry` boots country packs from `config('pii-redactor.packs')`. `ItalyPack` ships as the reference implementation; `GermanyPack`, `SpainPack`, `FrancePack`, `NetherlandsPack`, `PortugalPack` are community PRs welcome (see [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md)).
+- **🇪🇺 EU country pack architecture** — `PackContract` interface + `DetectorPackRegistry` boots country packs from `config('pii-redactor.packs')`. **Three packs ship in v1.1**: `ItalyPack` (default), `GermanyPack` (opt-in), `SpainPack` (opt-in). `FrancePack`, `NetherlandsPack`, `PortugalPack` are community PRs welcome (see [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md)).
 - **3 always-on multi-country detectors** (no pack required):
   - `email` — pragmatic RFC-5321 shape match.
   - `iban` — ISO 13616 IBAN for every registered country (~75) + mod-97 verification.
@@ -160,8 +163,8 @@ Padosoft\PiiRedactor\
 // config/pii-redactor.php
 'packs' => [
     \Padosoft\PiiRedactor\Packs\Italy\ItalyPack::class,
-    // \Padosoft\PiiRedactor\Packs\Spain\SpainPack::class,    // when v1.1 ships
-    // \Padosoft\PiiRedactor\Packs\Germany\GermanyPack::class, // when v1.1 ships
+    // \Padosoft\PiiRedactor\Packs\Germany\GermanyPack::class, // shipped v1.1 — opt-in
+    // \Padosoft\PiiRedactor\Packs\Spain\SpainPack::class,     // shipped v1.1 — opt-in
 ],
 ```
 
@@ -268,21 +271,81 @@ That's it. The ServiceProvider boots, the `DetectorPackRegistry` walks the confi
 
 ## Comparison vs alternatives
 
-|                                       | laravel-pii-redactor | Microsoft Presidio | Spatie data-redaction approaches | AWS Comprehend PII | Google Cloud DLP |
-|---------------------------------------|----------------------|--------------------|----------------------------------|--------------------|------------------|
-| Native Laravel facade + ServiceProvider | YES                  | NO (Python)        | YES (different scope)            | NO (AWS SDK)       | NO (GCP SDK)     |
-| Italian `codice fiscale` checksum     | YES (CIN table)      | partial regex      | NO                               | NO                 | NO               |
-| Italian `partita IVA` checksum        | YES (Luhn-IT)        | NO                 | NO                               | NO                 | NO               |
-| ISO 13616 IBAN mod-97 (every country) | YES                  | structural only    | NO                               | partial            | partial          |
-| Reversible pseudonymisation (`detokenise`) | YES (deterministic)  | NO                 | partial (custom)                 | NO                 | partial (DLP de-id) |
-| Operates entirely offline             | YES                  | YES (Python)       | YES                              | NO (AWS API)       | NO (GCP API)     |
-| Per-detector hash namespacing         | YES                  | NO                 | NO                               | NO                 | partial          |
-| GDPR data-minimisation friendly       | YES (no transit)     | YES                | YES                              | NO (US transit)    | NO (US transit)  |
-| Per-tenant custom detectors           | `Pii::extend()`      | yaml + Python      | manual                           | custom entities    | custom infoTypes |
-| Cost per 1M characters                | EUR 0                | self-hosted        | EUR 0                            | ~ EUR 1            | ~ EUR 1.50       |
-| `composer require` install            | YES                  | NO                 | YES (different package)          | NO                 | NO               |
+✅ = supported out of the box · 🟡 = partial / requires custom code or paid tier · ❌ = not supported
 
-`laravel-pii-redactor` is **not** a Presidio replacement for fuzzy entity recognition — Presidio's NER layer (PERSON, ORG, LOC) is genuinely more capable, and you can plug it (or HuggingFace, or spaCy) into this package via the `NerDriver` interface (v0.3+). The deterministic regex + checksum + per-country pack core stays the strongest layer where the existing EU-aware options are weakest.
+### Platform & deployment
+
+|                                            | laravel-pii-redactor                | Microsoft Presidio       | Spatie data-redaction    | AWS Comprehend PII       | Google Cloud DLP         |
+|--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| Native Laravel facade + ServiceProvider    | ✅ YES                              | ❌ NO (Python)           | ✅ YES (different scope) | ❌ NO (AWS SDK)          | ❌ NO (GCP SDK)          |
+| `composer require` install                 | ✅ YES                              | ❌ NO                    | ✅ YES (different scope) | ❌ NO                    | ❌ NO                    |
+| Operates entirely offline (default path)   | ✅ YES                              | ✅ YES (self-hosted)     | ✅ YES                   | ❌ NO (AWS API)          | ❌ NO (GCP API)          |
+| GDPR data-minimisation friendly            | ✅ YES (no transit)                 | ✅ YES                   | ✅ YES                   | ❌ NO (US transit)       | ❌ NO (US transit)       |
+| Cost per 1M characters                     | ✅ EUR 0                            | 🟡 self-hosted compute   | ✅ EUR 0                 | ❌ ~ EUR 1               | ❌ ~ EUR 1.50            |
+
+### EU country detector coverage (deterministic, checksum-validated)
+
+|                                            | laravel-pii-redactor                | Microsoft Presidio       | Spatie data-redaction    | AWS Comprehend PII       | Google Cloud DLP         |
+|--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| 🇮🇹 Codice fiscale (CIN checksum)           | ✅ YES (`ItalyPack`)                | 🟡 regex shape only      | ❌ NO                    | ❌ NO                    | 🟡 regex shape only      |
+| 🇮🇹 Partita IVA (Luhn-IT)                   | ✅ YES (`ItalyPack`)                | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| 🇩🇪 Steuer-ID (mod-11 ISO 7064 + §139b AO)  | ✅ YES (`GermanyPack` v1.1)         | ❌ NO                    | ❌ NO                    | ❌ NO                    | 🟡 regex only (no checksum) |
+| 🇩🇪 USt-IdNr (BMF Method 30 mod-11)         | ✅ YES (`GermanyPack` v1.1)         | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| 🇪🇸 DNI / NIE (23-letter checksum)          | ✅ YES (`SpainPack` v1.1)           | 🟡 regex shape only      | ❌ NO                    | ❌ NO                    | 🟡 regex shape only      |
+| 🇪🇸 CIF (AEAT dual digit/letter control)    | ✅ YES (`SpainPack` v1.1)           | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| 🇫🇷 NIR / SSN (mod-97)                      | 🟡 v1.2+ candidate (community PR)   | 🟡 regex shape only      | ❌ NO                    | ❌ NO                    | 🟡 regex shape only      |
+| 🇳🇱 BSN (eleven-test mod-11)                | 🟡 v1.2+ candidate (community PR)   | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| 🇵🇹 NIF (mod-11)                            | 🟡 v1.2+ candidate (community PR)   | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| ISO 13616 IBAN mod-97 (every country)      | ✅ YES                              | 🟡 structural only       | ❌ NO                    | 🟡 partial (US-leaning)  | 🟡 partial (US-leaning)  |
+| Per-country phone number heuristics        | ✅ YES (IT/DE/ES + community packs) | 🟡 limited               | ❌ NO                    | 🟡 limited               | 🟡 limited               |
+| Per-country street-address heuristics      | ✅ YES (IT/DE/ES)                   | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+
+### Replacement strategies (mask / hash / tokenise / drop)
+
+|                                            | laravel-pii-redactor                | Microsoft Presidio       | Spatie data-redaction    | AWS Comprehend PII       | Google Cloud DLP         |
+|--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| Mask strategy (`[REDACTED]`)               | ✅ YES                              | ✅ YES                   | ✅ YES                   | ✅ YES                   | ✅ YES                   |
+| Deterministic salted hash strategy         | ✅ YES                              | 🟡 custom anonymizer     | 🟡 custom                | ❌ NO                    | 🟡 cryptoHashConfig      |
+| Per-detector hash namespacing              | ✅ YES                              | ❌ NO                    | ❌ NO                    | ❌ NO                    | 🟡 partial               |
+| Reversible pseudonymisation (`detokenise`) | ✅ YES (`TokeniseStrategy`)         | ❌ NO                    | 🟡 custom                | ❌ NO                    | 🟡 DLP de-identify       |
+| Drop strategy (empty replacement)          | ✅ YES                              | ✅ YES                   | ✅ YES                   | ❌ NO                    | ✅ YES                   |
+| Strategy override per-call (`Pii::redact($t, new HashStrategy(...))`) | ✅ YES | 🟡 anonymizer chains    | 🟡 manual                | ❌ NO                    | 🟡 deidentifyTemplate    |
+
+### Persistence & infrastructure
+
+|                                            | laravel-pii-redactor                | Microsoft Presidio       | Spatie data-redaction    | AWS Comprehend PII       | Google Cloud DLP         |
+|--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| In-memory token store (process-local)      | ✅ YES (`InMemoryTokenStore`)       | ❌ NO (stateless)        | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Database token store (Eloquent + migration) | ✅ YES (`DatabaseTokenStore` v0.2)  | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Cache token store (Redis / Memcached / array) | ✅ YES (`CacheTokenStore` v0.3)   | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Cross-process / cross-deploy detokenisation | ✅ YES (database / cache drivers)   | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Audit-trail event (counts only, GDPR-safe) | ✅ YES (`PiiRedactionPerformed` v0.2) | ❌ NO                  | ❌ NO                    | 🟡 CloudWatch (paid)     | 🟡 audit logs (paid)     |
+
+### Extensibility & community
+
+|                                            | laravel-pii-redactor                | Microsoft Presidio       | Spatie data-redaction    | AWS Comprehend PII       | Google Cloud DLP         |
+|--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| Per-tenant custom detectors                | ✅ `Pii::extend()` (one-liner)      | 🟡 yaml + Python class   | 🟡 manual                | 🟡 custom entities       | 🟡 custom infoTypes      |
+| YAML-loaded custom rule packs              | ✅ YES (`YamlCustomRuleLoader` v0.3) | 🟡 yaml + Python config | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Pluggable country pack architecture        | ✅ YES (`PackContract` v1.0)        | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Community-contributed country packs        | ✅ YES (DE + ES shipped v1.1; FR/NL/PT welcome) | ❌ NO        | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| HuggingFace NER driver (opt-in, fail-open) | ✅ YES (`HuggingFaceNerDriver` v0.3) | ✅ YES (HF integration) | ❌ NO                    | 🟡 separate service      | ❌ NO                    |
+| spaCy NER driver (opt-in, generic HTTP)    | ✅ YES (`SpaCyNerDriver` v0.3)      | ✅ YES (built-in)        | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| AI vibe-coding pack for contributors       | ✅ YES (`.claude/` skills + agents) | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Apache-2.0 license                         | ✅ YES                              | ✅ YES (MIT)             | ✅ YES (MIT)             | 🟡 proprietary           | 🟡 proprietary           |
+
+### Quality gates & guarantees
+
+|                                            | laravel-pii-redactor                | Microsoft Presidio       | Spatie data-redaction    | AWS Comprehend PII       | Google Cloud DLP         |
+|--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| Stable surface lock (semver v1.x)          | ✅ YES (v1.0+)                      | 🟡 0.x line              | ✅ YES                   | 🟡 service versioning    | 🟡 service versioning    |
+| PHP 8.3 / 8.4 / 8.5 × Laravel 12 / 13 matrix CI | ✅ YES                          | ❌ N/A                   | ✅ YES                   | ❌ N/A                   | ❌ N/A                   |
+| 600+ unit tests + robustness suite         | ✅ YES                              | ✅ YES                   | 🟡 smaller surface       | ❌ N/A (managed service) | ❌ N/A (managed service) |
+| Cross-pack architecture isolation enforced | ✅ YES (per-pack architecture test) | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Performance benchmarks (1MB doc < 2s)      | ✅ YES (`PerfBenchTest`)            | 🟡 unpublished           | 🟡 unpublished           | 🟡 SLA only              | 🟡 SLA only              |
+| Standalone-agnostic invariant (no host coupling) | ✅ YES (R37 architecture test) | ✅ YES                   | ✅ YES                   | ❌ N/A                   | ❌ N/A                   |
+
+`laravel-pii-redactor` is **not** a Presidio replacement for fuzzy named-entity recognition — Presidio's transformer-backed NER layer (PERSON, ORG, LOC) is genuinely more capable as a free-form classifier, and you can plug it (or any HuggingFace / spaCy model) into this package via the `NerDriver` interface (v0.3+). The deterministic regex + checksum + per-country pack core stays the strongest layer where the existing EU-aware options are weakest, and the persistent reverse-map storage + community-contributable pack architecture are unique to this package across the comparison set.
 
 ---
 
@@ -424,7 +487,7 @@ Every key in `config/pii-redactor.php` is documented inline. Highlights:
 - `hash_hex_length` — between 4 and 64; default **16** (= 64-bit namespace, well above the birthday bound for any realistic corpus). Drop to 8 only if you accept that downstream joins on `[hash:...]` may collapse unrelated records once the dataset crosses ~30k uniques.
 - `token_hex_length` — between 8 and 64; default **16** for the `[tok:<detector>:<id>]` id portion. Same collision argument as `hash_hex_length`.
 - `detectors` — whitelist of multi-country detector classes the ServiceProvider auto-registers (`EmailDetector`, `IbanDetector`, `CreditCardDetector` by default). Removing an entry disables the detector. Country-specific detectors are loaded via the `packs` array, not here. Custom detectors registered via `Pii::extend()` bypass this list. Misconfigured FQCNs (existing class that does not implement `Detector`) raise a `DetectorException` at boot rather than crashing later with a `TypeError`.
-- `packs` — array of `PackContract` FQCNs the ServiceProvider boots into the `DetectorPackRegistry`. Default ships `[ItalyPack::class]`. Add `GermanyPack::class` / `SpainPack::class` / etc. when v1.1+ packs land, or your own pack (see [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md)). Misconfigured FQCNs are caught at boot.
+- `packs` — array of `PackContract` FQCNs the ServiceProvider boots into the `DetectorPackRegistry`. Default ships `[ItalyPack::class]`. Add `GermanyPack::class` (German Steuer-ID + USt-IdNr + phone/address) or `SpainPack::class` (DNI + NIE + CIF + phone/address) for additional EU coverage. Custom packs welcome — see [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md). Misconfigured FQCNs are caught at boot.
 - `custom_rules.auto_register` — when `true` (v1.0+), the SP walks `custom_rules.packs` and auto-registers each YAML pack at boot. Defaults to `false` for v0.x parity.
 - `custom_rules.packs` — array of `['name' => ..., 'path' => ...]` entries. The `name` becomes the `Pii::extend()` alias AND the `CustomRuleDetector::name()`. Example: `['name' => 'custom_it_albo', 'path' => storage_path('app/pii-rules/it-albo.yaml')]`. Validation errors throw `CustomRuleException` at boot.
 - `audit_trail_enabled` (v0.1 BC) and `audit_trail.enabled` (v0.2 structured) — when true, the engine fires `PiiRedactionPerformed` after every `redact()` call. Payload carries counts only (no raw PII or redacted output). The structured key is preferred; the flat key remains as a fallback so v0.1 hosts upgrade transparently.
@@ -453,12 +516,16 @@ src/
  │    ├── PartitaIvaDetector.php           Italian — Luhn-IT, instantiated by ItalyPack
  │    ├── PhoneItalianDetector.php         Italian — instantiated by ItalyPack
  │    └── AddressItalianDetector.php       Italian street-address heuristic, instantiated by ItalyPack
- ├── Packs/                                v1.0 — opt-in country bundles (aggregators)
+ ├── Packs/                                v1.0+ — opt-in country bundles (aggregators)
  │    ├── PackContract.php                 interface (name / countryCode / description / detectors)
  │    ├── DetectorPackRegistry.php         resolves config('pii-redactor.packs') into engine detectors
- │    └── Italy/
- │         └── ItalyPack.php               aggregates the 4 IT detectors above
- │                                          (default — listed in config('pii-redactor.packs'))
+ │    ├── Italy/
+ │    │    └── ItalyPack.php               aggregates the 4 IT detectors above
+ │    │                                     (default — listed in config('pii-redactor.packs'))
+ │    ├── Germany/                         v1.1 — opt-in
+ │    │    └── GermanyPack.php             4 DE detectors (steuer_id / ust_idnr / phone_de / address_de)
+ │    └── Spain/                           v1.1 — opt-in
+ │         └── SpainPack.php               5 ES detectors (dni / nie / cif / phone_es / address_es)
  ├── Strategies/
  │    ├── RedactionStrategy.php            interface
  │    ├── MaskStrategy.php
@@ -571,8 +638,10 @@ Both drivers fail open on HTTP error, so a NER outage **cannot** block determini
 - **v0.2.0 (W4.1, shipped 2026-05-03)** — `address_it` Italian street-address heuristic detector (7th first-party detector). `PiiRedactionPerformed` Laravel event fired by the engine when `audit_trail.enabled = true`; carries counts only (no raw PII). Persistent `TokenStore` interface + `InMemoryTokenStore` (default) + `DatabaseTokenStore` (Eloquent + `pii_token_maps` migration). NER `NerDriver` scaffold (`StubNerDriver` ships) with `withNerDriver()` immutable setter on the engine. 158 PHPUnit tests on the v0.2 surface.
 - **v0.3.0 (W4.1, shipped 2026-05-03)** — production NER drivers (`HuggingFaceNerDriver` + `SpaCyNerDriver` via `Http::`), Italian custom-rule YAML loader (`CustomRule` + `CustomRuleSet` + `YamlCustomRuleLoader` + `CustomRuleDetector` + `CustomRuleException`), cache-backed `TokenStore` driver (`CacheTokenStore` over `Illuminate\Contracts\Cache\Repository` with TTL + index), Live test harness. 320 PHPUnit tests / 658 assertions.
 - **v1.0.0 (W4.1, this PR)** — **EU country pack architecture**. `PackContract` interface + `ItalyPack` reference implementation. `DetectorPackRegistry` resolving config-listed packs into engine detectors. SP auto-register loop for custom_rules YAML packs (closes v0.3 deferred TODO). Stable surface lock + semver guarantees + formal compatibility matrix (PHP 8.3/8.4/8.5 × Laravel 12/13). Migration guide v0.x → v1.0 (no breaking changes). [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md) community PR guide. Hardened [SECURITY.md](SECURITY.md). 400+ PHPUnit tests on the v1.0 surface.
-- **v1.1.0 (W4.1, next)** — first community-style packs: `GermanyPack` (Steuer-ID mod-11 + USt-IdNr + German phone/address) + `SpainPack` (DNI letter-checksum + NIE + CIF + Spanish phone/address). Both ship with checksum-source citations + 10/5 valid/invalid fixtures.
-- **v1.2+ candidates** — `FrancePack` (NIR mod-97 + TVA + French phone/address), `NetherlandsPack` (BSN + Dutch phone/address), `PortugalPack` (NIF + Portuguese phone/address). PRs welcome — see [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md).
+- **v1.1.0 (W4.1, this PR)** — first community-style packs land alongside `ItalyPack`:
+  - `GermanyPack` — `steuer_id` (mod-11 ISO 7064 per §139b AO), `ust_idnr` (BMF Method 30 per §27a UStG), `phone_de`, `address_de`. 10 valid + 5 invalid + 5 wrong-format checksum fixtures per detector.
+  - `SpainPack` — `dni` (23-letter table per RD 1553/2005), `nie`, `cif`, `phone_es`, `address_es`. Same fixture standards.
+- **v1.2+ candidates** — `FrancePack` (NIR mod-97 + TVA), `NetherlandsPack` (BSN), `PortugalPack` (NIF). Community PRs welcome — see [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md).
 
 ---
 
