@@ -17,12 +17,17 @@ final class CifDetectorTest extends TestCase
     }
 
     /**
-     * 10 valid synthetic CIFs covering BOTH control-character branches:
+     * 10 valid synthetic CIFs covering all THREE control-character branches:
      *
-     *  - First six: leading letters K / P / Q / S / N / W → control is
-     *    a letter from JABCDEFGHI (the letter-control branch).
-     *  - Last four: leading letters A / B / C / D → control is a digit
-     *    (the digit-control branch).
+     *  - Four letter-mandatory leaders (K / P / Q / S): control is the
+     *    letter at index C in 'JABCDEFGHI'. Only letter form accepted.
+     *  - Two dual-control leaders (N / W) using their LETTER form: control
+     *    is the letter at index C. Both letter and digit forms are accepted
+     *    for dual-control leaders — see dedicated regression tests below.
+     *  - Two digit-mandatory leaders (A / B): control is the computed digit
+     *    C. Only digit form accepted.
+     *  - Two dual-control leaders (C / D) using their DIGIT form: control
+     *    is the computed digit C.
      *
      * Checksums computed via the AEAT spec algorithm.
      *
@@ -148,6 +153,33 @@ final class CifDetectorTest extends TestCase
         // A-leading CIF must be rejected — it's the wrong group.
         $detector = new CifDetector;
         $this->assertSame([], $detector->detect('CIF: A1234567D.'));
+    }
+
+    public function test_dual_control_n_leader_accepts_digit_form(): void
+    {
+        // N is a dual-control leader (foreign entities). The AEAT validator
+        // accepts EITHER the digit C OR the letter at index C. This test
+        // guards against the pre-fix regression where N was classified as
+        // letter-mandatory, rejecting digit-control variants that AEAT
+        // validates as correct.
+        //
+        // N5050505 → evenSum = 0, oddSum = 4, total = 4,
+        // lastDigit = 4, expectedC = 6, expectedLetter = 'F'.
+        // Digit-control form: N50505056 (control = '6').
+        $detector = new CifDetector;
+        $this->assertCount(1, $detector->detect('CIF: N50505056.'), 'N-leader digit-form must be accepted (dual-control)');
+    }
+
+    public function test_dual_control_w_leader_accepts_digit_form(): void
+    {
+        // W is a dual-control leader (permanent establishments of non-
+        // resident entities). Same pre-fix regression as N above.
+        //
+        // W9090909 → evenSum = 0, oddSum = 36, total = 36,
+        // lastDigit = 6, expectedC = 4, expectedLetter = 'D'.
+        // Digit-control form: W90909094 (control = '4').
+        $detector = new CifDetector;
+        $this->assertCount(1, $detector->detect('CIF: W90909094.'), 'W-leader digit-form must be accepted (dual-control)');
     }
 
     public function test_returns_detection_objects_with_correct_detector_name(): void
