@@ -11,9 +11,9 @@ use Padosoft\PiiRedactor\PiiRedactorServiceProvider;
 /**
  * Opt-in live test for the SpaCyNerDriver. Requires:
  *
- *   PII_REDACTOR_LIVE=1     (master opt-in for the Live testsuite)
+ *   PII_REDACTOR_LIVE=1                                            (master opt-in for the Live testsuite)
  *   PII_REDACTOR_SPACY_SERVER_URL=https://your-spacy-server.example/ner
- *   PII_REDACTOR_SPACY_API_KEY=...  (optional — protocol allows anonymous servers)
+ *   PII_REDACTOR_SPACY_API_KEY=...                                 (optional — protocol allows anonymous servers)
  *
  * See tests/Live/README.md for the full convention.
  */
