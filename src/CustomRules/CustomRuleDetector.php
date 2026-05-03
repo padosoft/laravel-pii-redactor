@@ -56,11 +56,26 @@ final class CustomRuleDetector implements Detector
 
             foreach ($matches[0] as $m) {
                 $value = (string) $m[0];
+                $length = strlen($value);
+                if ($length === 0) {
+                    // Zero-length matches (e.g. `a*` against "hello") would
+                    // emit one empty Detection per scan position — preg_match_all
+                    // bumps the cursor by 1 on a zero-width match and yields a
+                    // hit at every offset, polluting the detection report.
+                    // The engine's substr_replace round-trip would handle
+                    // length-0 cleanly (no characters consumed) but the
+                    // reports + audit trail still count them, which is the
+                    // wrong contract — a tenant pack with `a*` would inflate
+                    // the redaction count by strlen(text)+1 per call.
+                    // Skip silently here: pathological patterns degrade to
+                    // "no detection" rather than "1000 detections of nothing".
+                    continue;
+                }
                 $detections[] = new Detection(
                     detector: $this->packName,
                     value: $value,
                     offset: (int) $m[1],
-                    length: strlen($value),
+                    length: $length,
                 );
             }
         }

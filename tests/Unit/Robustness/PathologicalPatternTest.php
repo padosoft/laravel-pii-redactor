@@ -96,19 +96,19 @@ final class PathologicalPatternTest extends TestCase
     // ---------------------------------------------------------------
 
     /**
-     * Catches: a regression where a pattern that can match the empty
-     * string causes the detector to crash in an infinite loop, or
-     * returns one Detection per character position with empty value.
+     * Catches: a regression that re-introduces zero-length Detection
+     * emission. v1.0 added a `length === 0` guard to
+     * `CustomRuleDetector::detect()` that drops empty matches
+     * silently — pathological patterns like `a*` against `"hello"`
+     * now produce ZERO detections instead of `strlen($input)+1`
+     * empty hits. That is the deliberate v1.0 contract: tenant packs
+     * shipping a careless `a*` cannot inflate the audit-trail count.
      *
-     * Pinned behaviour: `a*` against `"hello"` matches the empty
-     * string at offset 0 between every two characters AND at EOL —
-     * preg_match_all returns those zero-length matches in $matches[0],
-     * each with the original offset. The detector currently emits a
-     * Detection for EACH such match. This is documented but
-     * suboptimal: a future revision could filter zero-length matches
-     * upfront (suggested as a v1.0 follow-up).
+     * Pinned in v0.3 (and earlier): each zero-width position would
+     * emit a Detection with `length === 0` and `value === ''`.
+     * Pinned in v1.0+: zero detections.
      */
-    public function test_empty_match_pattern_pins_current_zero_length_emission_behaviour(): void
+    public function test_empty_match_pattern_emits_no_zero_length_detections(): void
     {
         $detector = new CustomRuleDetector(
             'pack_empty',
@@ -117,24 +117,36 @@ final class PathologicalPatternTest extends TestCase
 
         $hits = $detector->detect('hello');
 
-        // Pinned: zero-length matches DO emit Detections today. Every
-        // emitted Detection has length 0 and a valid offset. The
-        // engine's substr_replace round-trip handles length-0 cleanly
-        // (no characters consumed). This is suboptimal; flagged as a
-        // v1.0 hardening candidate (filter `length > 0` in
-        // CustomRuleDetector::detect()).
-        foreach ($hits as $hit) {
-            $this->assertSame(0, $hit->length);
-            $this->assertSame('', $hit->value);
-        }
+        // v1.0 contract: zero-length matches are filtered out at
+        // detect-time so the detection report stays clean. Pre-v1.0
+        // behaviour was `strlen('hello')+1 = 6` empty Detections.
+        $this->assertSame([], $hits);
+    }
 
-        // The number of zero-length matches equals strlen($input) + 1
-        // (one between every two characters, plus one at EOL); the
-        // exact count is PCRE-implementation-defined, so we only
-        // assert non-empty here. The "no infinite loop" guarantee is
-        // PCRE's, not ours — preg_match_all bumps the cursor on a
-        // zero-width match.
-        $this->assertNotEmpty($hits);
+    /**
+     * Mixed-pattern fixture: a single rule that captures BOTH
+     * zero-length and proper matches MUST emit only the proper
+     * matches. `a*` against `"caat"` zero-widths every gap AND finds
+     * `aa` at offset 1 — only the latter survives the v1.0 filter.
+     */
+    public function test_zero_length_filter_preserves_real_matches_in_same_pattern(): void
+    {
+        $detector = new CustomRuleDetector(
+            'pack_mixed',
+            new CustomRuleSet([new CustomRule('greedy_a', 'a*')]),
+        );
+
+        $hits = $detector->detect('caat');
+
+        // The single non-empty match `aa` (offset 1, length 2) is the
+        // only Detection — every zero-width hit between chars is
+        // dropped by the length-0 guard.
+        $nonEmpty = array_values(array_filter($hits, static fn ($h) => $h->length > 0));
+        $this->assertCount(count($hits), $nonEmpty, 'No zero-length detections should leak through.');
+        $this->assertCount(1, $hits);
+        $this->assertSame('aa', $hits[0]->value);
+        $this->assertSame(1, $hits[0]->offset);
+        $this->assertSame(2, $hits[0]->length);
     }
 
     /**

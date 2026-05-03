@@ -2,16 +2,13 @@
 
 declare(strict_types=1);
 
-use Padosoft\PiiRedactor\Detectors\AddressItalianDetector;
-use Padosoft\PiiRedactor\Detectors\CodiceFiscaleDetector;
 use Padosoft\PiiRedactor\Detectors\CreditCardDetector;
 use Padosoft\PiiRedactor\Detectors\EmailDetector;
 use Padosoft\PiiRedactor\Detectors\IbanDetector;
-use Padosoft\PiiRedactor\Detectors\PartitaIvaDetector;
-use Padosoft\PiiRedactor\Detectors\PhoneItalianDetector;
 use Padosoft\PiiRedactor\Ner\HuggingFaceNerDriver;
 use Padosoft\PiiRedactor\Ner\SpaCyNerDriver;
 use Padosoft\PiiRedactor\Ner\StubNerDriver;
+use Padosoft\PiiRedactor\Packs\Italy\ItalyPack;
 
 return [
 
@@ -94,23 +91,30 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Enabled detectors
+    | Enabled detectors — multi-country / international only
     |--------------------------------------------------------------------------
     |
     | Whitelist of detector class names that the ServiceProvider should
-    | register. Unknown classes are skipped silently; remove an entry to
-    | disable a detector. Custom detectors registered via Pii::extend()
-    | bypass this list.
+    | register at boot. These are international / multi-jurisdiction detectors
+    | that are NOT tied to any specific country:
+    |
+    |  - IbanDetector   — ISO 13616 IBAN (39 countries)
+    |  - EmailDetector  — RFC-5321 email addresses
+    |  - CreditCardDetector — Luhn-validated card numbers (Visa / MC / Amex /
+    |    Discover / UnionPay)
+    |
+    | Country-specific detectors (e.g. Codice Fiscale, Partita IVA, Italian
+    | phone/address) are managed by the `packs` array below. To disable a
+    | country's detection, remove its pack from that list rather than touching
+    | this array.
+    |
+    | Custom detectors registered via Pii::extend() bypass this list entirely.
     |
     */
     'detectors' => [
-        CodiceFiscaleDetector::class,
-        PartitaIvaDetector::class,
         IbanDetector::class,
         EmailDetector::class,
-        PhoneItalianDetector::class,
         CreditCardDetector::class,
-        AddressItalianDetector::class,
     ],
 
     /*
@@ -282,6 +286,33 @@ return [
         'packs' => [
             //
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | EU country packs (v1.0)
+    |--------------------------------------------------------------------------
+    |
+    | List of `PackContract`-implementing FQCNs whose detectors are registered
+    | with the engine at boot. Each pack aggregates the jurisdiction-specific
+    | detectors for one country / region — e.g. `ItalyPack` ships codice
+    | fiscale + P.IVA + Italian phone + Italian address.
+    |
+    | Multi-country detectors (Email, IBAN, CreditCard) are NOT pack members;
+    | they live in the top-level `pii-redactor.detectors` list above and run
+    | regardless of which packs are enabled.
+    |
+    | To enable additional jurisdictions, install the corresponding community
+    | pack (or write your own per `CONTRIBUTING-PACKS.md`) and add the FQCN
+    | here. To disable a default pack (e.g. an English-only deployment that
+    | doesn't redact Italian fiscal codes), remove its entry.
+    |
+    | Roadmap (v1.1+): GermanyPack, SpainPack. v1.2+ candidates: FrancePack,
+    | NetherlandsPack, PortugalPack.
+    |
+    */
+    'packs' => [
+        ItalyPack::class,
     ],
 
 ];

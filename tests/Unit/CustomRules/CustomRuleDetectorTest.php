@@ -139,4 +139,25 @@ final class CustomRuleDetectorTest extends TestCase
         $this->assertSame('[X]', '[X]'); // sanity guard
         $this->assertSame('Member [X] active.', $engine->redact('Member ISCR-654321 active.'));
     }
+
+    /**
+     * v1.0 contract — zero-length matches are filtered out at
+     * detect-time so a careless tenant pattern (`a*`, `\b`, `^`)
+     * cannot inflate the detection report by `strlen($input)+1`
+     * empty hits. The pre-v1.0 behaviour was to emit one Detection
+     * per zero-width position; v1.0 adds the `length === 0` guard
+     * inside `CustomRuleDetector::detect()` (see PathologicalPatternTest
+     * for the full pinning suite).
+     */
+    public function test_zero_length_pattern_emits_no_detections(): void
+    {
+        $detector = new CustomRuleDetector(
+            'pack_zerolen',
+            new CustomRuleSet([new CustomRule('greedy_a', 'a*')]),
+        );
+
+        $hits = $detector->detect('hello');
+
+        $this->assertSame([], $hits);
+    }
 }

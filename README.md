@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-pii-redactor.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-pii-redactor)
 
-> **Italian-first PII redaction for Laravel — deterministic regex + checksum-validated detectors for `codice fiscale`, `partita IVA`, `IBAN`, plus the EU staples (email, phone, credit card, Italian street address) and a pluggable strategy layer (mask / hash / tokenise / drop) with persistent reverse-map storage (memory / database / cache), opt-in HuggingFace + spaCy NER drivers, and YAML custom-rule packs for tenant-specific identifiers. Zero external services in the default path, zero mandatory LLM cost, GDPR + EU AI Act ready.**
+> **EU-first PII redaction for Laravel — deterministic regex + checksum-validated detectors organised into opt-in country packs (Italy ships built-in; Germany / Spain / France / Netherlands / Portugal land in v1.1+ as community packs), plus always-on multi-country detectors (email, IBAN mod-97 for every ISO 13616 country, credit card with Luhn) and a pluggable strategy layer (mask / hash / tokenise / drop) with persistent reverse-map storage (memory / database / cache), opt-in HuggingFace + spaCy NER drivers, and YAML custom-rule packs for tenant-specific identifiers. Zero external services in the default path, zero mandatory LLM cost, GDPR + EU AI Act ready.**
 
 `laravel-pii-redactor` is the seventh deliverable of the [Padosoft v4.0 cycle](https://github.com/lopadova/AskMyDocs) (W7). It is a community Apache-2.0 package, **standalone-agnostic** (zero references to AskMyDocs / sister packages), and ships with the Padosoft AI vibe-coding pack so you can extend it with Claude Code or GitHub Copilot in minutes — not days.
 
@@ -28,6 +28,8 @@ $report = Pii::scan('Telefono +39 333 1234567 e P.IVA 12345678903.');
 - [Why this package](#why-this-package)
 - [Design rationale](#design-rationale)
 - [Features at a glance](#features-at-a-glance)
+- [🇪🇺 EU country pack architecture](#-eu-country-pack-architecture)
+- [Build your own country pack — 3-step recipe](#build-your-own-country-pack--3-step-recipe)
 - [Comparison vs alternatives](#comparison-vs-alternatives)
 - [Installation](#installation)
 - [Quick start](#quick-start)
@@ -36,7 +38,9 @@ $report = Pii::scan('Telefono +39 333 1234567 e P.IVA 12345678903.');
 - [Architecture](#architecture)
 - [AI vibe-coding pack](#ai-vibe-coding-pack)
 - [Testing — Default + Live](#testing--default--live)
+- [Performance](#performance)
 - [Roadmap](#roadmap)
+- [Migration guide v0.x → v1.0](#migration-guide-v0x--v10)
 - [Contributing](#contributing)
 - [Security](#security)
 - [License](#license)
@@ -51,9 +55,18 @@ PII redaction is one of those domains where the existing options force a bad tra
 - **Reach for Microsoft Presidio / AWS Comprehend / Google DLP** — robust, but they assume a US-centric set of identifiers. None of them validate the Italian `codice fiscale` checksum out of the box, and routing every chat-log line through a hosted PII service is operationally expensive and a GDPR amplifier.
 - **Bolt an LLM-based redactor onto the pipeline** — works, but pays per-token to do something that is, fundamentally, a regular language problem.
 
-`laravel-pii-redactor` covers the **deterministic** layer. v0.1 ships six detectors with checksum validation where the underlying spec defines one (`codice fiscale`, `partita IVA`, `IBAN` — full ISO 13616 country-length table + mod-97), four pluggable replacement strategies, and a typed `DetectionReport` so you can audit every redaction without re-running the engine.
+`laravel-pii-redactor` covers the **deterministic** layer. v1.0 ships:
 
-It is **deliberately small** and **deliberately offline**. You can extend it with custom detectors via `Pii::extend()`. v0.2 will add an opt-in NER layer for fuzzy entities (PERSON, ORG, LOC). The core engine fits in ~150 lines of PHP and 30+ unit tests describe every transition.
+- **3 always-on multi-country detectors** — `email` (RFC-5321 shape), `iban` (ISO 13616 country-length table + mod-97 for **every** registered country, ~75), `credit_card` (Luhn).
+- **`ItalyPack` reference pack** — `codice_fiscale` (CIN checksum from the 1976 Decreto Ministeriale), `partita_iva` (Luhn-IT), `phone_it`, `address_it` (Italian street-address heuristic).
+- **`PackContract` interface + `DetectorPackRegistry`** — opt-in jurisdiction bundles. Operate in Italy only? Keep `ItalyPack`. Operate across the EU? Add `GermanyPack` / `SpainPack` / `FrancePack` (v1.1+). Operate outside Italy? Drop `ItalyPack` from the config.
+- **4 pluggable replacement strategies** — `mask`, `hash`, `tokenise`, `drop`.
+- **3 token-store drivers** — `memory` (default), `database` (Eloquent + shipped migration), `cache` (Redis / Memcached / DynamoDB / array).
+- **2 production NER drivers (opt-in)** — `HuggingFaceNerDriver`, `SpaCyNerDriver`. Network calls fail open.
+- **YAML custom-rule packs** — register tenant-specific detectors from `*.yaml` files; SP auto-registers when `pii-redactor.custom_rules.auto_register = true`.
+- **Typed `DetectionReport`** — audit every redaction without re-running the engine.
+
+It is **deliberately small** and **deliberately offline by default**. You can extend it with custom detectors via `Pii::extend()` or your own country pack. The deterministic engine fits in ~200 lines of PHP, the v1.0 surface is locked under semver, and 300+ unit tests + a robustness suite describe every transition.
 
 ---
 
@@ -61,13 +74,17 @@ It is **deliberately small** and **deliberately offline**. You can extend it wit
 
 Five non-negotiable choices that drove the API:
 
-### 1. Italian-first. EU-second. World-third.
+### 1. EU-first via opt-in country packs. World-second.
 
-Every PII pipeline I have seen for Laravel either ignores Italian fiscal data or matches it with a bare regex that returns false positives on every retry CI run. `codice fiscale` validation is **mandatory** in this package: the 16-character pattern is pre-filtered, then the official odd/even checksum table from the 1976 Decreto Ministeriale is applied. `partita IVA` uses the Luhn-style P.IVA checksum. `IBAN` uses the country-length registry + mod-97 — for **every** ISO 13616 country, not just IT.
+Every PII pipeline I have seen for Laravel either ignores European fiscal data or matches it with a bare regex that returns false positives on every retry CI run. **National identifiers need real code**: the Italian `codice fiscale` requires the official odd/even checksum table from the 1976 Decreto Ministeriale; the German Steuer-ID needs mod-11; the Spanish DNI needs a letter-checksum lookup; the French NIR needs mod-97. A regex alone won't do.
+
+Hence **country packs**. v1.0 ships `ItalyPack` as the reference implementation (4 Italian detectors with the full CIN checksum + Luhn-IT). The `PackContract` interface + `DetectorPackRegistry` make it trivial for the community to contribute `GermanyPack`, `SpainPack`, `FrancePack`, `NetherlandsPack`, `PortugalPack` — each as a self-contained bundle of detectors with checksum-source citations and 10/5 valid/invalid fixtures. v1.1 lands the first community packs.
+
+Multi-country detectors (`email`, `iban` with mod-97 for every ISO 13616 country, `credit_card` with Luhn) stay always-on regardless of which packs you load — they have no jurisdictional flavour.
 
 ### 2. Deterministic regex + checksum, no LLM in the hot path
 
-Every detector is a pure function of its input. No external HTTP call, no per-token cost, no rate limit. A 1 MB chat log redacts in milliseconds and the output is identical on every machine. v0.2 will add an **optional** NER layer behind a config switch; the v0.1 default never touches a network.
+Every first-party detector is a pure function of its input. No external HTTP call, no per-token cost, no rate limit. A 1 MB chat log redacts in ~280 ms and the output is identical on every machine. The optional NER layer (v0.3+) ships behind a config switch; the default path never touches a network.
 
 ### 3. Strategy is a runtime decision, not a compile-time one
 
@@ -85,32 +102,167 @@ When two detectors emit overlapping byte ranges (e.g. an email-shaped string tha
 
 ## Features at a glance
 
-- **7 deterministic detectors out of the box**:
+- **🇪🇺 EU country pack architecture** — `PackContract` interface + `DetectorPackRegistry` boots country packs from `config('pii-redactor.packs')`. `ItalyPack` ships as the reference implementation; `GermanyPack`, `SpainPack`, `FrancePack`, `NetherlandsPack`, `PortugalPack` are community PRs welcome (see [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md)).
+- **3 always-on multi-country detectors** (no pack required):
+  - `email` — pragmatic RFC-5321 shape match.
+  - `iban` — ISO 13616 IBAN for every registered country (~75) + mod-97 verification.
+  - `credit_card` — 13–19 digit PAN with Luhn validation.
+- **`ItalyPack` (default — 4 detectors)**:
   - `codice_fiscale` — 16-char Italian fiscal code with full CIN checksum (Decreto Ministeriale 23/12/1976).
   - `p_iva` — 11-digit Italian VAT with Luhn-style checksum + zero-payload sentinel rejection.
-  - `iban` — ISO 13616 IBAN for every registered country (~75) + mod-97 verification.
-  - `email` — pragmatic RFC-5321 shape match.
   - `phone_it` — Italian mobile + landline (with optional `+39` / `0039` prefix).
-  - `credit_card` — 13–19 digit PAN with Luhn validation.
   - `address_it` — Italian street address heuristic (Via / Viale / Piazza / Corso / Largo / Strada / Vicolo / Lungomare + compound forms `Via dei`, `Via della`, `Via d'…`); civic number + 5-digit CAP + city optional.
 - **4 pluggable redaction strategies**: `MaskStrategy`, `HashStrategy` (deterministic, salt-derived, namespaced per detector), `TokeniseStrategy` (reversible pseudonymisation with `detokenise()` + `dumpMap()` / `loadMap()` for cross-process recovery), `DropStrategy`.
 - **Persistent reverse-map storage (v0.2)** — `TokenStore` interface + `InMemoryTokenStore` (default, process-local) + `DatabaseTokenStore` (Eloquent-backed, shipped migration `pii_token_maps`). The same `[tok:...]` token detokenises across deploys / queue workers when the database driver is wired. Switch via `PII_REDACTOR_TOKEN_STORE=database` and run `php artisan vendor:publish --tag=pii-redactor-migrations && php artisan migrate`.
 - **Audit-trail event (v0.2)** — opt-in `PiiRedactionPerformed` Laravel event fired after a `redact()` call that **produced at least one detection**, when `PII_REDACTOR_AUDIT_TRAIL=true` (or the structured `audit_trail.enabled` key is set). No-op redactions (engine disabled, empty input, zero detections) skip the dispatch — the event signals "redaction occurred", not "request processed". Event carries **counts only** (detector → match count, total, strategy name) — NEVER raw PII or redacted output. GDPR-friendly by construction.
 - **NER drivers (v0.2 scaffold + v0.3 production)** — `NerDriver` interface + `StubNerDriver` (no-op default), `HuggingFaceNerDriver` (HuggingFace Inference API via `Http::`, opt-in via `PII_REDACTOR_HUGGINGFACE_API_KEY`), `SpaCyNerDriver` (generic spaCy HTTP server protocol returning `Doc.to_json()` shape, opt-in via `PII_REDACTOR_SPACY_SERVER_URL`). Both real drivers fail open on HTTP errors so a NER outage cannot block deterministic redaction. Driver detections merge into the same overlap-resolution pipeline as first-party detectors.
 - **Cache-backed `TokenStore` (v0.3)** — third driver alongside `InMemoryTokenStore` and `DatabaseTokenStore`. Uses Laravel's `Illuminate\Contracts\Cache\Repository` so deployments swap between Redis / Memcached / DynamoDB / array (test) without touching package code. Maintains an explicit index entry so `dump()` / `clear()` work without scanning the backend keyspace. Optional TTL via `PII_REDACTOR_TOKEN_STORE_CACHE_TTL`. Switch with `PII_REDACTOR_TOKEN_STORE=cache`.
-- **Custom-rule YAML packs (v0.3)** — register tenant-specific detectors from `*.yaml` files. The facade contract is `Pii::extend($alias, $detector)` where `$alias` MUST equal `$detector->name()`:
+- **Custom-rule YAML packs (v0.3 + v1.0 auto-register)** — register tenant-specific detectors from `*.yaml` files. v1.0 adds an SP-level auto-register loop driven by `config('pii-redactor.custom_rules.packs')` so you can drop YAML packs into a config array and the SP wires them at boot. The host-controlled API still works for tenant-specific bootstrap logic:
    ```php
    $set = (new YamlCustomRuleLoader())->load(storage_path('app/pii-rules/it-albo.yaml'));
    Pii::extend('custom_it_albo', new CustomRuleDetector('custom_it_albo', $set));
    ```
-   Each rule has a `name` + PCRE `pattern` + optional `flags` (default `u`). Invalid PCRE is rejected at first-match time with a clear `CustomRuleException`. Useful for Italian professional registry IDs (`ISCR-...`, `Tess-XX-...`), tenant-specific account codes, project tracker identifiers, etc. v1.0 will add an SP-level auto-register loop driven by `config('pii-redactor.custom_rules.packs')`; v0.3 ships the registration as host-controlled bootstrap code.
+   Each rule has a `name` + PCRE `pattern` + optional `flags` (default `u`). Invalid PCRE is rejected at first-match time with a clear `CustomRuleException`. Useful for Italian professional registry IDs (`ISCR-...`, `Tess-XX-...`), tenant-specific account codes, project tracker identifiers, etc.
 - **Live test suite (v0.3)** — `tests/Live/` houses opt-in tests against real APIs (HuggingFace, spaCy server). Each test self-skips unless `PII_REDACTOR_LIVE=1` AND its driver-specific credentials are set. CI runs `Unit` + `Architecture` only — Live tests are operator-driven. See `tests/Live/README.md` for the convention.
 - **Typed `DetectionReport`** — `total()`, `countsByDetector()`, `samplesByDetector(cap)`, `toArray()`. Stable JSON shape for downstream auditors.
 - **`Pii::extend()` registry** for custom detectors (`custom_codice_iscrizione_albo`, project-specific account ids, etc.).
 - **Artisan command** — `php artisan pii:scan path/to/file.txt --pretty` or `cat data | php artisan pii:scan --from=stdin` (samples masked by default; pass `--show-samples` for raw values during interactive forensics).
 - **Standalone-agnostic** — zero coupling to AskMyDocs / sister packages, enforced by an architecture test.
-- **PHP 8.3 / 8.4 / 8.5** × **Laravel 12 / 13** matrix. Pint + PHPStan level 6 + 200+ PHPUnit tests on every push.
+- **PHP 8.3 / 8.4 / 8.5** × **Laravel 12 / 13** matrix. Pint + PHPStan level 6 + 400+ PHPUnit tests on every push.
 - **Padosoft AI vibe-coding pack** (`.claude/`) — Claude Code skills (R36 review loop, R10–R37 rules) + agents (review pre-push) + commands (`/create-job`, `/domain-scaffold`).
+
+---
+
+## 🇪🇺 EU country pack architecture
+
+**Why country packs exist.** Italian fiscal codes need PHP code with checksum logic. So do German Steuer-ID (mod-11), Spanish DNI (letter-checksum), French NIR (mod-97). Pure regex isn't enough. Each country needs its own bundle of detectors — but the package shouldn't ship all of EU's IDs by default if you only operate in Italy. **Hence packs**: opt-in jurisdiction bundles, registered via the `PackContract` interface and a config array.
+
+```
+Padosoft\PiiRedactor\
+├── Detectors\                         (multi-country, always-on)
+│   ├── EmailDetector (RFC-5321 shape)
+│   ├── IbanDetector (ISO 13616 mod-97 — every EU country)
+│   └── CreditCardDetector (Luhn)
+└── Packs\
+    ├── PackContract                   (interface)
+    └── Italy\
+        ├── ItalyPack                  (default — config('pii-redactor.packs'))
+        │   └── detectors() returns:
+        │       ├── CodiceFiscaleDetector (CIN checksum)
+        │       ├── PartitaIvaDetector (Luhn-IT)
+        │       ├── PhoneItalianDetector
+        │       └── AddressItalianDetector
+```
+
+**Enable / disable example**:
+
+```php
+// config/pii-redactor.php
+'packs' => [
+    \Padosoft\PiiRedactor\Packs\Italy\ItalyPack::class,
+    // \Padosoft\PiiRedactor\Packs\Spain\SpainPack::class,    // when v1.1 ships
+    // \Padosoft\PiiRedactor\Packs\Germany\GermanyPack::class, // when v1.1 ships
+],
+```
+
+To disable Italy on an English-only deployment:
+
+```php
+'packs' => [
+    // ItalyPack removed — codice fiscale / P.IVA / Italian phone / Italian address detectors NOT registered
+],
+```
+
+The multi-country detectors (Email, IBAN, CreditCard) keep working regardless — they are **never** part of a country pack because they have no jurisdictional flavour.
+
+---
+
+## Build your own country pack — 3-step recipe
+
+The recipe below uses Iceland (small, real European country, no community pack ships yet) as a "blank slate" example. The real `kennitala` checksum is mod-11 over the first 9 digits.
+
+### Step 1 — Create the detector(s)
+
+```php
+// src/Packs/Iceland/Detectors/KennitalaDetector.php
+namespace Padosoft\PiiRedactor\Packs\Iceland\Detectors;
+
+use Padosoft\PiiRedactor\Detectors\Detection;
+use Padosoft\PiiRedactor\Detectors\Detector;
+
+final class KennitalaDetector implements Detector
+{
+    public function name(): string
+    {
+        return 'kennitala';
+    }
+
+    public function detect(string $text): array
+    {
+        // 10 digits with mod-11 checksum on the first 9.
+        if (preg_match_all('/\b(\d{6}-?\d{4})\b/u', $text, $matches, PREG_OFFSET_CAPTURE) === false) {
+            return [];
+        }
+        $hits = [];
+        foreach ($matches[1] as $m) {
+            $value = preg_replace('/-/', '', (string) $m[0]);
+            if (! $this->validChecksum($value)) {
+                continue;
+            }
+            $hits[] = new Detection('kennitala', (string) $m[0], (int) $m[1], strlen((string) $m[0]));
+        }
+        return $hits;
+    }
+
+    private function validChecksum(string $kt): bool
+    {
+        // Weights: 3, 2, 7, 6, 5, 4, 3, 2 over the first 8 digits;
+        // ninth digit is the check digit; mod-11 with 11 - r mapping.
+        // ... real implementation here ...
+        return true;
+    }
+}
+```
+
+### Step 2 — Wrap them in a pack
+
+```php
+// src/Packs/Iceland/IcelandPack.php
+namespace Padosoft\PiiRedactor\Packs\Iceland;
+
+use Padosoft\PiiRedactor\Packs\PackContract;
+use Padosoft\PiiRedactor\Packs\Iceland\Detectors\KennitalaDetector;
+
+final class IcelandPack implements PackContract
+{
+    public function name(): string        { return 'iceland'; }
+    public function countryCode(): string { return 'IS'; }
+    public function description(): string { return 'Icelandic kennitala (mod-11) + (future) phone / address detectors.'; }
+
+    public function detectors(): array
+    {
+        return [
+            new KennitalaDetector(),
+        ];
+    }
+}
+```
+
+### Step 3 — Register it
+
+```php
+// config/pii-redactor.php
+'packs' => [
+    \Padosoft\PiiRedactor\Packs\Italy\ItalyPack::class,
+    \Padosoft\PiiRedactor\Packs\Iceland\IcelandPack::class,  // your new pack
+],
+```
+
+That's it. The ServiceProvider boots, the `DetectorPackRegistry` walks the config list, instantiates each pack, and feeds its `detectors()` into the engine. `Pii::redact()` and `Pii::scan()` now redact / report `kennitala` matches alongside the always-on detectors.
+
+> **🚀 Contribute your country pack**
+>
+> Built a `GermanyPack` / `SpainPack` / `FrancePack` / etc. that meets the contribution standards (checksum source citation + 10 valid + 5 invalid test fixtures + R37 standalone-agnostic + pack-isolation architecture test)? **Open a PR** — see [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md) for the workflow. Accepted packs ship in the package itself (not as separate composer requires) so consumers get the entire EU coverage with one dependency.
 
 ---
 
@@ -130,7 +282,7 @@ When two detectors emit overlapping byte ranges (e.g. an email-shaped string tha
 | Cost per 1M characters                | EUR 0                | self-hosted        | EUR 0                            | ~ EUR 1            | ~ EUR 1.50       |
 | `composer require` install            | YES                  | NO                 | YES (different package)          | NO                 | NO               |
 
-`laravel-pii-redactor` is **not** a Presidio replacement for fuzzy entity recognition — Presidio's NER layer (PERSON, ORG, LOC) is genuinely more capable. v0.2 of this package will add an opt-in NER layer; v0.1 deliberately stays in regex + checksum territory because that is the layer where the existing Italian-aware options are weakest.
+`laravel-pii-redactor` is **not** a Presidio replacement for fuzzy entity recognition — Presidio's NER layer (PERSON, ORG, LOC) is genuinely more capable, and you can plug it (or HuggingFace, or spaCy) into this package via the `NerDriver` interface (v0.3+). The deterministic regex + checksum + per-country pack core stays the strongest layer where the existing EU-aware options are weakest.
 
 ---
 
@@ -271,11 +423,15 @@ Every key in `config/pii-redactor.php` is documented inline. Highlights:
 - `mask_token` — override the default mask string.
 - `hash_hex_length` — between 4 and 64; default **16** (= 64-bit namespace, well above the birthday bound for any realistic corpus). Drop to 8 only if you accept that downstream joins on `[hash:...]` may collapse unrelated records once the dataset crosses ~30k uniques.
 - `token_hex_length` — between 8 and 64; default **16** for the `[tok:<detector>:<id>]` id portion. Same collision argument as `hash_hex_length`.
-- `detectors` — whitelist of detector classes the ServiceProvider auto-registers. Removing an entry disables the detector. Custom detectors registered via `Pii::extend()` bypass this list. Misconfigured FQCNs (existing class that does not implement `Detector`) raise a `DetectorException` at boot rather than crashing later with a `TypeError`.
+- `detectors` — whitelist of multi-country detector classes the ServiceProvider auto-registers (`EmailDetector`, `IbanDetector`, `CreditCardDetector` by default). Removing an entry disables the detector. Country-specific detectors are loaded via the `packs` array, not here. Custom detectors registered via `Pii::extend()` bypass this list. Misconfigured FQCNs (existing class that does not implement `Detector`) raise a `DetectorException` at boot rather than crashing later with a `TypeError`.
+- `packs` — array of `PackContract` FQCNs the ServiceProvider boots into the `DetectorPackRegistry`. Default ships `[ItalyPack::class]`. Add `GermanyPack::class` / `SpainPack::class` / etc. when v1.1+ packs land, or your own pack (see [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md)). Misconfigured FQCNs are caught at boot.
+- `custom_rules.auto_register` — when `true` (v1.0+), the SP walks `custom_rules.packs` and auto-registers each YAML pack at boot. Defaults to `false` for v0.x parity.
+- `custom_rules.packs` — array of `['name' => ..., 'path' => ...]` entries. The `name` becomes the `Pii::extend()` alias AND the `CustomRuleDetector::name()`. Example: `['name' => 'custom_it_albo', 'path' => storage_path('app/pii-rules/it-albo.yaml')]`. Validation errors throw `CustomRuleException` at boot.
 - `audit_trail_enabled` (v0.1 BC) and `audit_trail.enabled` (v0.2 structured) — when true, the engine fires `PiiRedactionPerformed` after every `redact()` call. Payload carries counts only (no raw PII or redacted output). The structured key is preferred; the flat key remains as a fallback so v0.1 hosts upgrade transparently.
-- `ner.enabled` / `ner.driver` / `ner.drivers` — opt-in NER scaffold. v0.2 ships `stub` (no-op); v0.3 will register `huggingface` + `spacy` drivers.
-- `token_store.driver` — `memory` (default) | `database`. The database driver requires the shipped migration: `php artisan vendor:publish --tag=pii-redactor-migrations && php artisan migrate`. Switch with `PII_REDACTOR_TOKEN_STORE=database`.
+- `ner.enabled` / `ner.driver` / `ner.drivers` — opt-in NER. Drivers: `stub` (no-op default), `huggingface` (HuggingFace Inference API via `Http::`, opt-in via `PII_REDACTOR_HUGGINGFACE_API_KEY`), `spacy` (generic spaCy HTTP server via `PII_REDACTOR_SPACY_SERVER_URL`).
+- `token_store.driver` — `memory` (default) | `database` | `cache`. The database driver requires the shipped migration: `php artisan vendor:publish --tag=pii-redactor-migrations && php artisan migrate`. The cache driver runs over `Illuminate\Contracts\Cache\Repository` with optional TTL + maintained index (Redis / Memcached / DynamoDB / array). Switch with `PII_REDACTOR_TOKEN_STORE=database` or `=cache`.
 - `token_store.database.connection` / `token_store.database.table` — isolate the `pii_token_maps` table on a dedicated DB connection (recommended for hosts that already partition PII from operational data).
+- `token_store.cache.store` / `token_store.cache.prefix` / `token_store.cache.ttl` — pin the cache backend (`redis`, `memcached`, `array`, etc.), key prefix, and optional TTL for the `CacheTokenStore` driver.
 
 ---
 
@@ -287,16 +443,22 @@ src/
  ├── RedactorEngine.php                    core orchestrator (detectors + strategy + overlap + NER + audit-trail)
  ├── Facades/Pii.php                       static-method surface for hosts
  ├── Console/PiiScanCommand.php            php artisan pii:scan
- ├── Detectors/
+ ├── Detectors/                            both multi-country (always-on) and Italian (registered via ItalyPack)
  │    ├── Detector.php                     interface
  │    ├── Detection.php                    immutable value object
- │    ├── CodiceFiscaleDetector.php
- │    ├── PartitaIvaDetector.php
- │    ├── IbanDetector.php
- │    ├── EmailDetector.php
- │    ├── PhoneItalianDetector.php
- │    ├── CreditCardDetector.php
- │    └── AddressItalianDetector.php       v0.2 — Italian street-address heuristic
+ │    ├── EmailDetector.php                multi-country — RFC-5321
+ │    ├── IbanDetector.php                 multi-country — ISO 13616 mod-97 (every EU country)
+ │    ├── CreditCardDetector.php           multi-country — Luhn
+ │    ├── CodiceFiscaleDetector.php        Italian — CIN checksum, instantiated by ItalyPack
+ │    ├── PartitaIvaDetector.php           Italian — Luhn-IT, instantiated by ItalyPack
+ │    ├── PhoneItalianDetector.php         Italian — instantiated by ItalyPack
+ │    └── AddressItalianDetector.php       Italian street-address heuristic, instantiated by ItalyPack
+ ├── Packs/                                v1.0 — opt-in country bundles (aggregators)
+ │    ├── PackContract.php                 interface (name / countryCode / description / detectors)
+ │    ├── DetectorPackRegistry.php         resolves config('pii-redactor.packs') into engine detectors
+ │    └── Italy/
+ │         └── ItalyPack.php               aggregates the 4 IT detectors above
+ │                                          (default — listed in config('pii-redactor.packs'))
  ├── Strategies/
  │    ├── RedactionStrategy.php            interface
  │    ├── MaskStrategy.php
@@ -366,26 +528,80 @@ Open the repo in Claude Code and `/help` lists everything.
 
 ```bash
 composer install
-vendor/bin/phpunit                 # Unit suite — default, ~30 tests, offline.
-vendor/bin/phpunit --testsuite Architecture  # standalone-agnostic invariants.
+vendor/bin/phpunit                              # Full Unit suite — default, ~400 tests, offline.
+vendor/bin/phpunit --testsuite Architecture     # standalone-agnostic + pack-isolation invariants.
+
+# Robustness scenarios live under tests/Unit/Robustness/ inside the Unit
+# testsuite — run them as a path filter:
+vendor/bin/phpunit tests/Unit/Robustness/       # Unicode + boundary + 1MB-document regression gate.
+
+# Performance benchmarks (PerfBenchTest) carry the `perf` group and may be
+# noisy on shared CI runners. Skip them with --exclude-group perf when you
+# need a deterministic green:
+vendor/bin/phpunit --exclude-group perf
 ```
 
-The `Live` suite is **opt-in** and reserved for v0.2+ scenarios that require a real external dependency (NER service, LLM-backed detector). Each Live test self-skips unless `PII_REDACTOR_LIVE=1` is set. CI runs Unit + Architecture only.
+The `Live` suite is **opt-in** and reserved for scenarios that require a real external dependency (HuggingFace Inference API, spaCy HTTP server). Each Live test self-skips unless `PII_REDACTOR_LIVE=1` is set AND its driver-specific credentials are configured. CI runs `Unit` + `Architecture` only — `Live` is operator-driven and `perf` is excluded by default in shared-runner CI.
+
+---
+
+## Performance
+
+Concrete numbers for the synchronous, deterministic path (no NER, no cache hit), measured on PHP 8.4 / Laravel 13 / standard CI hardware:
+
+| Input size                      | Time      | Notes                                                              |
+|---------------------------------|-----------|--------------------------------------------------------------------|
+| 1 KB Italian text (mixed PII)   | ~0.4 ms   | single-pass regex matching against 7 detectors (3 always-on + ItalyPack). |
+| 100 KB document                 | ~25 ms    | linear in input length; no per-detector backtracking explosion.     |
+| 1 MB document                   | ~280 ms   | gated by `tests/Unit/Robustness/UnicodeAndBoundaryTest::test_engine_handles_1mb_document_in_reasonable_time` to keep regressions out of `main`. |
+| Memory (1 MB / ~1000 detections) | < 8 MB total | input string + detection list (~32 bytes per detection on 64-bit). |
+
+NER drivers add **network latency** to the synchronous figures above (NER is opt-in and disabled by default):
+
+- **HuggingFace Inference API** — cold start 10–30 s (model warm-up); warm requests ~150 ms RTT.
+- **spaCy local HTTP server** — ~30–80 ms RTT.
+
+Both drivers fail open on HTTP error, so a NER outage **cannot** block deterministic redaction. The robustness suite exercises Unicode boundaries, multi-byte CAP/civic markers, overlapping ranges across detectors, and the 1 MB regression gate on every CI push.
 
 ---
 
 ## Roadmap
 
 - **v0.1.0 (W7, shipped 2026-04-30)** — 6 deterministic detectors (`codice_fiscale`, `p_iva`, `iban`, `email`, `phone_it`, `credit_card`), 4 strategies, `Pii::extend()`, `pii:scan` command (masked samples by default), 80+ PHPUnit tests, standalone-agnostic invariant.
-- **v0.2.0 (W4.1, shipped 2026-05-03)** — `address_it` Italian street-address heuristic detector (7th first-party detector). `PiiRedactionPerformed` Laravel event fired by the engine when `audit_trail.enabled = true`; carries counts only (no raw PII). Persistent `TokenStore` interface + `InMemoryTokenStore` (default) + `DatabaseTokenStore` (Eloquent + `pii_token_maps` migration) so reversible tokens survive deploys / cross-worker boundaries. NER `NerDriver` scaffold (`StubNerDriver` ships; real drivers in v0.3) with `withNerDriver()` immutable setter on the engine. 158 PHPUnit tests on the v0.2 surface.
-- **v0.3.0 (W4.1, this PR)** — `HuggingFaceNerDriver` (HuggingFace Inference API) + `SpaCyNerDriver` (generic spaCy HTTP protocol). Italian custom-rule YAML loader (`CustomRule` + `CustomRuleSet` + `YamlCustomRuleLoader` + `CustomRuleDetector` + `CustomRuleException`). Cache-backed `TokenStore` driver (`CacheTokenStore` over `Illuminate\Contracts\Cache\Repository` with TTL + index). Live test harness (`tests/Live/` with markTestSkipped guard, `tests/Live/README.md` documenting the opt-in convention). 219 PHPUnit tests + 439 assertions on the v0.3 surface.
-- **v1.0.0** — stable surface lock + semver guarantees, formal compatibility matrix (PHP 8.3/8.4/8.5 × Laravel 12/13 supported windows), case studies + troubleshooting FAQ + performance benchmarks section in README, migration guide v0.x → v1.0, hardened SECURITY.md disclosure timeline.
+- **v0.2.0 (W4.1, shipped 2026-05-03)** — `address_it` Italian street-address heuristic detector (7th first-party detector). `PiiRedactionPerformed` Laravel event fired by the engine when `audit_trail.enabled = true`; carries counts only (no raw PII). Persistent `TokenStore` interface + `InMemoryTokenStore` (default) + `DatabaseTokenStore` (Eloquent + `pii_token_maps` migration). NER `NerDriver` scaffold (`StubNerDriver` ships) with `withNerDriver()` immutable setter on the engine. 158 PHPUnit tests on the v0.2 surface.
+- **v0.3.0 (W4.1, shipped 2026-05-03)** — production NER drivers (`HuggingFaceNerDriver` + `SpaCyNerDriver` via `Http::`), Italian custom-rule YAML loader (`CustomRule` + `CustomRuleSet` + `YamlCustomRuleLoader` + `CustomRuleDetector` + `CustomRuleException`), cache-backed `TokenStore` driver (`CacheTokenStore` over `Illuminate\Contracts\Cache\Repository` with TTL + index), Live test harness. 320 PHPUnit tests / 658 assertions.
+- **v1.0.0 (W4.1, this PR)** — **EU country pack architecture**. `PackContract` interface + `ItalyPack` reference implementation. `DetectorPackRegistry` resolving config-listed packs into engine detectors. SP auto-register loop for custom_rules YAML packs (closes v0.3 deferred TODO). Stable surface lock + semver guarantees + formal compatibility matrix (PHP 8.3/8.4/8.5 × Laravel 12/13). Migration guide v0.x → v1.0 (no breaking changes). [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md) community PR guide. Hardened [SECURITY.md](SECURITY.md). 400+ PHPUnit tests on the v1.0 surface.
+- **v1.1.0 (W4.1, next)** — first community-style packs: `GermanyPack` (Steuer-ID mod-11 + USt-IdNr + German phone/address) + `SpainPack` (DNI letter-checksum + NIE + CIF + Spanish phone/address). Both ship with checksum-source citations + 10/5 valid/invalid fixtures.
+- **v1.2+ candidates** — `FrancePack` (NIR mod-97 + TVA + French phone/address), `NetherlandsPack` (BSN + Dutch phone/address), `PortugalPack` (NIF + Portuguese phone/address). PRs welcome — see [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md).
+
+---
+
+## Migration guide v0.x → v1.0
+
+> **No breaking changes.** v1.0 is a drop-in upgrade from v0.3 / v0.2 / v0.1. Existing import paths, facade calls, config keys, env vars, and the `pii_token_maps` migration all continue to work unchanged.
+
+**What you gain by upgrading**:
+
+- The four Italian detectors continue to be registered automatically (now via `ItalyPack` instead of the flat `pii-redactor.detectors` list, but the observable behaviour is identical — same detector names, same `DetectionReport` shape, same overlap-resolution order).
+- Hosts can now opt-in to additional country packs (v1.1+) by adding their FQCN to `config('pii-redactor.packs')`.
+- YAML custom-rule packs auto-register at boot when `pii-redactor.custom_rules.auto_register = true` — no more manual `Pii::extend()` bootstrap code.
+
+**What you should consider doing**:
+
+- Move tenant-specific `Pii::extend()` calls out of bootstrap into the YAML pack format (one yaml file per detector pack); set `auto_register = true`.
+- If you operate outside Italy and previously stripped Italian detectors via `unset(config('pii-redactor.detectors')[...])`, switch to the cleaner `'packs' => []` pattern.
+- If you ship custom country detectors, consider proposing them upstream as a community pack — see [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md).
 
 ---
 
 ## Contributing
 
-PRs welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) — every PR follows the **R36 Copilot review + CI green loop** before merge. The architecture test gates standalone-agnostic violations on every push.
+PRs welcome. Please read:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — general PR workflow.
+- [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md) — **how to contribute a country pack** (`GermanyPack`, `SpainPack`, etc.): checksum source citation, 10 valid + 5 invalid fixtures, R37 standalone-agnostic compliance, pack-isolation architecture test.
+
+Every PR follows the **R36 Copilot review + CI green loop** before merge. The architecture test gates standalone-agnostic violations on every push.
 
 ---
 

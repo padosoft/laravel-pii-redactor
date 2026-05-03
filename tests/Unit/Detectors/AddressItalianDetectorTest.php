@@ -88,6 +88,59 @@ final class AddressItalianDetectorTest extends TestCase
         $this->assertSame("Via d'Annunzio 1", $hits[0]->value);
     }
 
+    /**
+     * v1.0 — apostrophe-elided connectives (`dell'`, `nell'`, `sull'`,
+     * `all'`, `coll'`) are part of the connective allowlist. These are
+     * standard Italian elisions of preposition + article before an
+     * open vowel (Treccani / Accademia della Crusca); they appear
+     * constantly in real-world toponyms ("dell'Università",
+     * "nell'Orto", "sull'Arno", "all'Adige", "coll'Aniene").
+     */
+    public function test_detects_compound_form_via_dell_apostrophe(): void
+    {
+        $detector = new AddressItalianDetector;
+        $hits = $detector->detect("Sede in Via dell'Università 1.");
+
+        $this->assertCount(1, $hits);
+        $this->assertSame("Via dell'Università 1", $hits[0]->value);
+    }
+
+    public function test_detects_compound_form_via_nell_apostrophe(): void
+    {
+        $detector = new AddressItalianDetector;
+        $hits = $detector->detect("Casa in Via nell'Orto 3.");
+
+        $this->assertCount(1, $hits);
+        $this->assertSame("Via nell'Orto 3", $hits[0]->value);
+    }
+
+    public function test_detects_compound_form_via_sull_apostrophe(): void
+    {
+        $detector = new AddressItalianDetector;
+        $hits = $detector->detect("Bottega in Via sull'Arno 5.");
+
+        $this->assertCount(1, $hits);
+        $this->assertSame("Via sull'Arno 5", $hits[0]->value);
+    }
+
+    public function test_detects_compound_form_via_all_apostrophe(): void
+    {
+        $detector = new AddressItalianDetector;
+        $hits = $detector->detect("Punto in Via all'Adige 7.");
+
+        $this->assertCount(1, $hits);
+        $this->assertSame("Via all'Adige 7", $hits[0]->value);
+    }
+
+    public function test_detects_compound_form_via_coll_apostrophe(): void
+    {
+        $detector = new AddressItalianDetector;
+        $hits = $detector->detect("Studio in Via coll'Aniene 9.");
+
+        $this->assertCount(1, $hits);
+        $this->assertSame("Via coll'Aniene 9", $hits[0]->value);
+    }
+
     public function test_detects_multi_word_proper_noun_with_connective(): void
     {
         $detector = new AddressItalianDetector;
