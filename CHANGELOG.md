@@ -6,6 +6,42 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-03
+
+### Added — first community-style country packs
+
+- **`Padosoft\PiiRedactor\Packs\Germany\GermanyPack`** — German PII pack:
+  - `SteuerIdDetector` (`steuer_id`) — 11-digit Steuerliche Identifikationsnummer with mod-11 ISO 7064 (Pure) checksum and the §139b AO structural rule (one digit appears 2-3 times, at least one absent). Spec: §139b Abgabenordnung; Bundeszentralamt für Steuern.
+  - `UStIdNrDetector` (`ust_idnr`) — `DE` + 9-digit Umsatzsteuer-Identifikationsnummer with BMF Method 30 mod-11 checksum. Spec: §27a UStG.
+  - `PhoneGermanDetector` (`phone_de`) — German mobile (017x/015x/016x) + landline with optional `+49` / `0049` prefix and `(0)` parenthesised trunk.
+  - `AddressGermanDetector` (`address_de`) — heuristic German street addresses covering Straße / Str. / Allee / Platz / Weg / Gasse / Ring / Damm / Ufer / Brücke / Hof plus prefix forms `Am`, `An der`, `Auf der`, `Im`, `In der`, `Zur`. Optional civic + 5-digit Postleitzahl + city.
+  - 10 valid synthetic-but-checksum-correct fixtures + 5 invalid-checksum + 5 wrong-format per checksum detector. Pure heuristics for phone/address: 10 happy-path + 5 negative.
+- **`Padosoft\PiiRedactor\Packs\Spain\SpainPack`** — Spanish PII pack:
+  - `DniDetector` (`dni`) — 8-digit + 1-letter Documento Nacional de Identidad with the 23-letter checksum table (`TRWAGMYFPDXBNJZSQVHLCKE`). Spec: Real Decreto 1553/2005.
+  - `NieDetector` (`nie`) — Número de Identidad de Extranjero with prefix-substituted DNI algorithm (X→0, Y→1, Z→2).
+  - `CifDetector` (`cif`) — Código de Identificación Fiscal corporate ID with mixed digit/letter control depending on the leading letter group.
+  - `PhoneSpanishDetector` (`phone_es`) — Spanish mobile (6/7-prefix) + landline (8/9-prefix), with optional `+34` / `0034`.
+  - `AddressSpanishDetector` (`address_es`) — heuristic Spanish street addresses covering Calle / C/ / Avenida / Avd. / Avda. / Plaza / Pza. / Paseo / P.º / Carrer / Travesía / Glorieta / Ronda with optional `de la / de los / del` connectives.
+  - Same fixture standards as GermanyPack.
+- **Cross-pack architecture isolation tests** — `tests/Architecture/GermanyPackIsolationTest.php` + `SpainPackIsolationTest.php` enforce R37 + the v1.0 zero-cross-pack-imports invariant.
+
+### Changed
+
+- `README.md` — three packs now documented (Italy default + Germany / Spain opt-in). Architecture diagram extended; tagline + design rationale refreshed; Roadmap moves DE + ES from "v1.x candidates" to "shipped"; v1.2+ candidates kept as future invitation.
+- `config/pii-redactor.php` `packs` block — commented-out FQCNs for `GermanyPack` + `SpainPack` shown alongside the default `ItalyPack` entry to make opt-in trivial.
+
+### Backward compatibility
+
+v1.1 is a **drop-in upgrade** from v1.0 — no breaking changes. The default `packs` config still ships only `[ItalyPack::class]`; hosts opt-in to GermanyPack / SpainPack by uncommenting the relevant lines in their published config (or by adding the FQCN explicitly).
+
+### Test surface
+
+**~440 tests** (up from v1.0's 368). 4 detector test classes + 1 pack test per country (DE + ES) + 2 cross-pack architecture isolation tests.
+
+### Implementation notes
+
+The v1.1 work was scaffolded by **4 parallel Claude sub-agents** under strict file allowlists (Agent A: GermanyPack; Agent B: SpainPack; Agent C: README + config + CHANGELOG; Agent D: cross-pack architecture tests). Pattern proven across the v0.x → v1.x train: same template will drive v1.2+ community packs.
+
 ## [1.0.0] - 2026-05-03
 
 ### Added — EU country pack architecture
@@ -396,7 +432,8 @@ hosts:
   NOT require any sister Padosoft package and does NOT reference
   AskMyDocs symbols. Enforced on every CI run.
 
-[Unreleased]: https://github.com/padosoft/laravel-pii-redactor/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/padosoft/laravel-pii-redactor/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/padosoft/laravel-pii-redactor/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/padosoft/laravel-pii-redactor/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/padosoft/laravel-pii-redactor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/padosoft/laravel-pii-redactor/compare/v0.1.0...v0.2.0

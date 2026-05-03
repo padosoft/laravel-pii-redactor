@@ -307,12 +307,16 @@ return [
     | here. To disable a default pack (e.g. an English-only deployment that
     | doesn't redact Italian fiscal codes), remove its entry.
     |
-    | Roadmap (v1.1+): GermanyPack, SpainPack. v1.2+ candidates: FrancePack,
-    | NetherlandsPack, PortugalPack.
+    | Shipped (v1.1): GermanyPack, SpainPack — opt-in via the commented-out
+    | lines below. v1.2+ candidates: FrancePack, NetherlandsPack, PortugalPack.
     |
     */
     'packs' => [
         ItalyPack::class,
+        // Uncomment to enable German PII detection (Steuer-ID, USt-IdNr, German phone/address):
+        // \Padosoft\PiiRedactor\Packs\Germany\GermanyPack::class,
+        // Uncomment to enable Spanish PII detection (DNI, NIE, CIF, Spanish phone/address):
+        // \Padosoft\PiiRedactor\Packs\Spain\SpainPack::class,
     ],
 
 ];
