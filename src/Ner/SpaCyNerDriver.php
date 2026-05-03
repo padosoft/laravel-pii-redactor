@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Ner;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Padosoft\PiiRedactor\Detectors\Detection;
@@ -102,7 +103,13 @@ final class SpaCyNerDriver implements NerDriver
 
         $request = $this->buildRequest();
 
-        $response = $request->post($this->serverUrl, ['text' => $text]);
+        try {
+            $response = $request->post($this->serverUrl, ['text' => $text]);
+        } catch (ConnectionException) {
+            // Fail open: a network-level failure (timeout, DNS, connection
+            // refused) MUST NOT block redaction of the deterministic detectors.
+            return [];
+        }
 
         if (! $response->ok()) {
             // Fail open: a NER outage MUST NOT block redaction of the

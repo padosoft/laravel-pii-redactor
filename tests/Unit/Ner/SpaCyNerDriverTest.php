@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Tests\Unit\Ner;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Orchestra\Testbench\TestCase;
 use Padosoft\PiiRedactor\Detectors\Detection;
@@ -324,5 +325,19 @@ final class SpaCyNerDriverTest extends TestCase
                 && isset($body['text'])
                 && $body['text'] === 'Mario Rossi works in Milan.';
         });
+    }
+
+    public function test_connection_exception_returns_empty_list(): void
+    {
+        // Fail open: a network-level failure (timeout, DNS, connection refused)
+        // MUST NOT throw — the driver must return [] so deterministic detectors
+        // are not blocked.
+        Http::fake(static function (): never {
+            throw new ConnectionException('Connection timed out');
+        });
+
+        $driver = new SpaCyNerDriver;
+
+        $this->assertSame([], $driver->detect('Mario Rossi works in Milan.'));
     }
 }

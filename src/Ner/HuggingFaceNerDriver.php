@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Ner;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Padosoft\PiiRedactor\Detectors\Detection;
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
@@ -89,13 +90,19 @@ final class HuggingFaceNerDriver implements NerDriver
             return [];
         }
 
-        $response = Http::withToken($this->apiKey)
-            ->timeout($this->timeoutSeconds)
-            ->acceptJson()
-            ->post($this->baseUrl.'/models/'.$this->model, [
-                'inputs' => $text,
-                'options' => ['wait_for_model' => true],
-            ]);
+        try {
+            $response = Http::withToken($this->apiKey)
+                ->timeout($this->timeoutSeconds)
+                ->acceptJson()
+                ->post($this->baseUrl.'/models/'.$this->model, [
+                    'inputs' => $text,
+                    'options' => ['wait_for_model' => true],
+                ]);
+        } catch (ConnectionException) {
+            // Fail open: a network-level failure (timeout, DNS, connection
+            // refused) MUST NOT block redaction of the deterministic detectors.
+            return [];
+        }
 
         if (! $response->ok()) {
             // Fail open: a NER outage MUST NOT block redaction of the
@@ -127,6 +134,11 @@ final class HuggingFaceNerDriver implements NerDriver
      * `entity` instead of `entity_group`) is silently skipped — the modern
      * aggregated form is what we consume.
      *
+     * HuggingFace (Python) returns Unicode character offsets; PHP's
+     * substr_replace() / substr() are byte-based. We use mb_substr() to
+     * extract the matched text and derive byte offsets so Detection.offset
+     * and Detection.length are consistent with the byte-based engine.
+     *
      * @param  mixed  $entity
      */
     private function mapEntity($entity, string $text): ?Detection
@@ -144,23 +156,31 @@ final class HuggingFaceNerDriver implements NerDriver
             return null;
         }
 
-        $start = (int) $entity['start'];
-        $end = (int) $entity['end'];
-        $length = $end - $start;
-        if ($length <= 0 || $start < 0) {
+        $charStart = (int) $entity['start'];
+        $charEnd = (int) $entity['end'];
+        $charLength = $charEnd - $charStart;
+        if ($charLength <= 0 || $charStart < 0) {
             return null;
         }
 
-        $value = substr($text, $start, $length);
+        // HuggingFace returns character offsets (Python len()-semantics). Use
+        // mb_substr() so that multibyte characters (Italian diacritics, etc.)
+        // are handled correctly. Then derive byte offset/length via strlen()
+        // so the Detection contract (byte offsets) is satisfied and the engine's
+        // substr_replace() operates at the right position.
+        $value = mb_substr($text, $charStart, $charLength, 'UTF-8');
         if ($value === '') {
             return null;
         }
 
+        $byteOffset = strlen(mb_substr($text, 0, $charStart, 'UTF-8'));
+        $byteLength = strlen($value);
+
         return new Detection(
             detector: $this->entityMap[$hfLabel],
             value: $value,
-            offset: $start,
-            length: $length,
+            offset: $byteOffset,
+            length: $byteLength,
         );
     }
 }

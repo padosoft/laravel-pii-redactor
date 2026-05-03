@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Tests\Unit\Ner;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Padosoft\PiiRedactor\Detectors\Detection;
@@ -280,5 +281,73 @@ final class HuggingFaceNerDriverTest extends TestCase
 
             return true;
         });
+    }
+
+    public function test_connection_exception_returns_empty_list(): void
+    {
+        // Fail open: a network-level failure (timeout, DNS, connection refused)
+        // MUST NOT throw — the driver must return [] so deterministic detectors
+        // are not blocked.
+        Http::fake(static function (): never {
+            throw new ConnectionException('Connection timed out');
+        });
+
+        $driver = new HuggingFaceNerDriver(apiKey: 'test-key');
+
+        $this->assertSame([], $driver->detect(self::TEXT));
+    }
+
+    public function test_multibyte_offsets_are_byte_based(): void
+    {
+        // HuggingFace returns Python character offsets. The Italian name
+        // "Nicolò" starts at char offset 0 but "Rossi" starts at char offset 7
+        // (one char per code point). In UTF-8, "ò" is 2 bytes, so "Rossi" is
+        // at byte offset 8 — Detection must store byte offsets so the engine's
+        // substr_replace() operates at the right position.
+        $text = 'Nicolò Rossi'; // byte layout: N(1)i(1)c(1)o(1)l(1)ò(2)space(1)R(1)...
+        // "Nicolò" = 6 chars, 7 bytes. "Rossi" starts at char 7, byte 8.
+
+        Http::fake([
+            'api-inference.huggingface.co/*' => Http::response([
+                [
+                    'entity_group' => 'PER',
+                    'score' => 0.99,
+                    'word' => 'Nicolò',
+                    'start' => 0, // char offset
+                    'end' => 6,   // char offset
+                ],
+                [
+                    'entity_group' => 'PER',
+                    'score' => 0.95,
+                    'word' => 'Rossi',
+                    'start' => 7, // char offset
+                    'end' => 12,  // char offset
+                ],
+            ], 200),
+        ]);
+
+        $driver = new HuggingFaceNerDriver(apiKey: 'test-key');
+        $detections = $driver->detect($text);
+
+        $this->assertCount(2, $detections);
+
+        // First detection: "Nicolò" — char offset 0 → byte offset 0, byte length 7
+        $this->assertSame('Nicolò', $detections[0]->value);
+        $this->assertSame(0, $detections[0]->offset);
+        $this->assertSame(strlen('Nicolò'), $detections[0]->length);
+
+        // Second detection: "Rossi" — char offset 7 → byte offset 8, byte length 5
+        $this->assertSame('Rossi', $detections[1]->value);
+        $this->assertSame(strlen('Nicolò '), $detections[1]->offset); // "Nicolò" is 7 bytes + 1 space = 8
+        $this->assertSame(strlen('Rossi'), $detections[1]->length);
+
+        // Confirm the engine can reconstruct the matched spans using byte offsets.
+        foreach ($detections as $d) {
+            $this->assertSame(
+                $d->value,
+                substr($text, $d->offset, $d->length),
+                sprintf('substr() with byte offset must recover value "%s"', $d->value),
+            );
+        }
     }
 }

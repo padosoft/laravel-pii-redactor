@@ -27,6 +27,14 @@ use Illuminate\Contracts\Cache\Repository;
  *   index is not a correctness bug, just a minor `dump()` over-report.
  * - For workloads where TTL expiry is frequent, prefer DatabaseTokenStore
  *   (no expiry by default) or a TTL-less Redis namespace.
+ * - **Concurrent writes**: `addToIndex()` performs a non-atomic
+ *   read-check-write sequence. Under concurrent `put()` calls from
+ *   multiple workers, one worker's index write can overwrite another's,
+ *   causing a token to be silently dropped from the index. `get()` and
+ *   `has()` remain correct (they address the token key directly); only
+ *   `dump()` and `clear()` can be incomplete. For high-concurrency
+ *   workloads that rely on `dump()` completeness, prefer
+ *   DatabaseTokenStore or a dedicated Redis SADD-backed index.
  *
  * Memory hygiene (CLAUDE.md R3): `dump()` reads the index then issues
  * one `get()` per indexed token. The index itself can grow unbounded if
