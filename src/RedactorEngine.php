@@ -6,7 +6,9 @@ namespace Padosoft\PiiRedactor;
 
 use Padosoft\PiiRedactor\Detectors\Detection;
 use Padosoft\PiiRedactor\Detectors\Detector;
+use Padosoft\PiiRedactor\Events\PiiRedactionPerformed;
 use Padosoft\PiiRedactor\Exceptions\DetectorException;
+use Padosoft\PiiRedactor\Ner\NerDriver;
 use Padosoft\PiiRedactor\Reports\DetectionReport;
 use Padosoft\PiiRedactor\Strategies\RedactionStrategy;
 
@@ -23,6 +25,14 @@ use Padosoft\PiiRedactor\Strategies\RedactionStrategy;
  *
  * Enabled flag: when false, redact() returns the original text unchanged
  * (scan() always runs regardless). Mirrors the pii-redactor.enabled config key.
+ *
+ * Audit trail: when $auditTrailEnabled is true, redact() fires a
+ * PiiRedactionPerformed event after the substitution loop with detection
+ * counts (no raw PII). Default is false to preserve v0.1 backward compat.
+ *
+ * NER driver: optional pluggable named-entity recognition driver. When set,
+ * its detections are merged into the same overlap-resolution pipeline as
+ * the registered Detector list. Default null preserves v0.1 behavior.
  */
 final class RedactorEngine
 {
@@ -34,6 +44,8 @@ final class RedactorEngine
     public function __construct(
         private RedactionStrategy $strategy,
         private bool $enabled = true,
+        private bool $auditTrailEnabled = false,
+        private ?NerDriver $nerDriver = null,
     ) {}
 
     public function register(Detector $detector): void
@@ -94,6 +106,22 @@ final class RedactorEngine
         return $clone;
     }
 
+    public function withAuditTrail(bool $enabled): self
+    {
+        $clone = clone $this;
+        $clone->auditTrailEnabled = $enabled;
+
+        return $clone;
+    }
+
+    public function withNerDriver(NerDriver $driver): self
+    {
+        $clone = clone $this;
+        $clone->nerDriver = $driver;
+
+        return $clone;
+    }
+
     public function scan(string $text): DetectionReport
     {
         return new DetectionReport($this->collectDetections($text));
@@ -119,6 +147,14 @@ final class RedactorEngine
             $output = substr_replace($output, $replacement, $d->offset, $d->length);
         }
 
+        if ($this->auditTrailEnabled) {
+            PiiRedactionPerformed::dispatch(
+                $this->countsByDetector($detections),
+                count($detections),
+                $strategy->name(),
+            );
+        }
+
         return $output;
     }
 
@@ -134,7 +170,27 @@ final class RedactorEngine
             }
         }
 
+        if ($this->nerDriver !== null) {
+            foreach ($this->nerDriver->detect($text) as $d) {
+                $all[] = $d;
+            }
+        }
+
         return $this->resolveOverlaps($all);
+    }
+
+    /**
+     * @param  list<Detection>  $detections
+     * @return array<string, int>
+     */
+    private function countsByDetector(array $detections): array
+    {
+        $counts = [];
+        foreach ($detections as $d) {
+            $counts[$d->detector] = ($counts[$d->detector] ?? 0) + 1;
+        }
+
+        return $counts;
     }
 
     /**

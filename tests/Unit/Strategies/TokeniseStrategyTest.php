@@ -6,6 +6,8 @@ namespace Padosoft\PiiRedactor\Tests\Unit\Strategies;
 
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
 use Padosoft\PiiRedactor\Strategies\TokeniseStrategy;
+use Padosoft\PiiRedactor\TokenStore\InMemoryTokenStore;
+use Padosoft\PiiRedactor\TokenStore\TokenStore;
 use PHPUnit\Framework\TestCase;
 
 final class TokeniseStrategyTest extends TestCase
@@ -116,5 +118,41 @@ final class TokeniseStrategyTest extends TestCase
     {
         $this->expectException(StrategyException::class);
         new TokeniseStrategy(salt: '');
+    }
+
+    public function test_default_constructor_uses_in_memory_store(): void
+    {
+        $strategy = new TokeniseStrategy(salt: 's');
+
+        $this->assertInstanceOf(TokenStore::class, $strategy->store());
+        $this->assertInstanceOf(InMemoryTokenStore::class, $strategy->store());
+    }
+
+    public function test_explicit_in_memory_store_matches_v01_behavior(): void
+    {
+        $store = new InMemoryTokenStore;
+        $strategy = new TokeniseStrategy(salt: 's', idHexLength: 16, store: $store);
+
+        $token = $strategy->apply('one@x.com', 'email');
+
+        $this->assertSame('one@x.com', $strategy->detokenise($token));
+        $this->assertSame('one@x.com', $store->get($token));
+    }
+
+    public function test_constructor_with_shared_store_persists_token_cross_instance(): void
+    {
+        $shared = new InMemoryTokenStore;
+
+        $a = new TokeniseStrategy(salt: 's', idHexLength: 16, store: $shared);
+        $token = $a->apply('cross@x.com', 'email');
+
+        // A fresh strategy that wraps the SAME store sees the prior write
+        // without needing dumpMap()/loadMap() — that is the contract that
+        // makes a DatabaseTokenStore meaningful in production.
+        $b = new TokeniseStrategy(salt: 's', idHexLength: 16, store: $shared);
+        $this->assertSame('cross@x.com', $b->detokenise($token));
+
+        // And re-applying the same input from B yields the same token.
+        $this->assertSame($token, $b->apply('cross@x.com', 'email'));
     }
 }

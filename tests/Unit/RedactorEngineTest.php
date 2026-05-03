@@ -4,15 +4,19 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Tests\Unit;
 
+use Illuminate\Support\Facades\Event;
 use Padosoft\PiiRedactor\Detectors\Detection;
 use Padosoft\PiiRedactor\Detectors\Detector;
 use Padosoft\PiiRedactor\Detectors\EmailDetector;
 use Padosoft\PiiRedactor\Detectors\IbanDetector;
+use Padosoft\PiiRedactor\Events\PiiRedactionPerformed;
 use Padosoft\PiiRedactor\Exceptions\DetectorException;
+use Padosoft\PiiRedactor\Ner\NerDriver;
+use Padosoft\PiiRedactor\Ner\StubNerDriver;
 use Padosoft\PiiRedactor\RedactorEngine;
 use Padosoft\PiiRedactor\Strategies\DropStrategy;
 use Padosoft\PiiRedactor\Strategies\MaskStrategy;
-use PHPUnit\Framework\TestCase;
+use Padosoft\PiiRedactor\Tests\TestCase;
 
 final class RedactorEngineTest extends TestCase
 {
@@ -170,5 +174,132 @@ final class RedactorEngineTest extends TestCase
 
         // scan() is always active regardless of the enabled flag.
         $this->assertSame(1, $report->total());
+    }
+
+    public function test_audit_trail_event_is_fired_when_enabled(): void
+    {
+        Event::fake();
+
+        $engine = new RedactorEngine(
+            new MaskStrategy('[X]'),
+            enabled: true,
+            auditTrailEnabled: true,
+        );
+        $engine->register(new EmailDetector);
+
+        $engine->redact('Email a@x.io and b@y.io.');
+
+        Event::assertDispatched(
+            PiiRedactionPerformed::class,
+            fn (PiiRedactionPerformed $e) => $e->total === 2
+                && $e->countsByDetector === ['email' => 2]
+                && $e->strategyName === 'mask',
+        );
+    }
+
+    public function test_audit_trail_event_is_not_fired_by_default(): void
+    {
+        Event::fake();
+
+        // Default constructor: auditTrailEnabled defaults to false.
+        $engine = new RedactorEngine(new MaskStrategy('[X]'));
+        $engine->register(new EmailDetector);
+
+        $engine->redact('Email a@x.io.');
+
+        Event::assertNotDispatched(PiiRedactionPerformed::class);
+    }
+
+    public function test_audit_trail_event_is_not_fired_when_no_detections(): void
+    {
+        Event::fake();
+
+        $engine = new RedactorEngine(
+            new MaskStrategy('[X]'),
+            enabled: true,
+            auditTrailEnabled: true,
+        );
+        $engine->register(new EmailDetector);
+
+        // No PII in the input — early return before the dispatch.
+        $engine->redact('Plain text without sensitive content.');
+
+        Event::assertNotDispatched(PiiRedactionPerformed::class);
+    }
+
+    public function test_with_audit_trail_returns_a_clone(): void
+    {
+        $engine = new RedactorEngine(new MaskStrategy);
+        $enabled = $engine->withAuditTrail(true);
+
+        $this->assertNotSame($engine, $enabled);
+    }
+
+    public function test_ner_driver_detections_are_merged_into_output(): void
+    {
+        $fakeNer = new class implements NerDriver
+        {
+            public function name(): string
+            {
+                return 'fake_ner';
+            }
+
+            public function detect(string $text): array
+            {
+                if (! str_contains($text, 'Mario')) {
+                    return [];
+                }
+                $offset = strpos($text, 'Mario');
+
+                return [new Detection('person_ner', 'Mario', (int) $offset, 5)];
+            }
+        };
+
+        $engine = new RedactorEngine(
+            new MaskStrategy('[X]'),
+            enabled: true,
+            auditTrailEnabled: false,
+            nerDriver: $fakeNer,
+        );
+
+        $out = $engine->redact('Mario lives in Roma.');
+
+        $this->assertSame('[X] lives in Roma.', $out);
+    }
+
+    public function test_with_ner_driver_returns_a_clone(): void
+    {
+        $engine = new RedactorEngine(new MaskStrategy);
+        $clone = $engine->withNerDriver(new StubNerDriver);
+
+        $this->assertNotSame($engine, $clone);
+    }
+
+    public function test_stub_ner_driver_returns_no_detections(): void
+    {
+        // Engine wired with the stub ner driver behaves like a v0.1 engine.
+        $engine = new RedactorEngine(
+            new MaskStrategy('[X]'),
+            enabled: true,
+            auditTrailEnabled: false,
+            nerDriver: new StubNerDriver,
+        );
+        $engine->register(new EmailDetector);
+
+        $out = $engine->redact('Mario at a@x.io is here.');
+
+        // Only the email got redacted; the stub returned no NER hits.
+        $this->assertSame('Mario at [X] is here.', $out);
+    }
+
+    public function test_engine_without_ner_driver_behaves_as_v01(): void
+    {
+        // No nerDriver passed: backward-compat with v0.1 callers.
+        $engine = new RedactorEngine(new MaskStrategy('[X]'));
+        $engine->register(new EmailDetector);
+
+        $out = $engine->redact('Email a@x.io.');
+
+        $this->assertSame('Email [X].', $out);
     }
 }
