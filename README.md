@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-pii-redactor.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-pii-redactor)
 
-> **Italian-first PII redaction for Laravel — deterministic regex + checksum-validated detectors for `codice fiscale`, `partita IVA`, `IBAN`, plus the EU staples (email, phone, credit card, Italian street address) and a pluggable strategy layer (mask / hash / tokenise / drop) with persistent reverse-map storage and an opt-in NER scaffold. Zero external services, zero LLM cost, GDPR + EU AI Act ready.**
+> **Italian-first PII redaction for Laravel — deterministic regex + checksum-validated detectors for `codice fiscale`, `partita IVA`, `IBAN`, plus the EU staples (email, phone, credit card, Italian street address) and a pluggable strategy layer (mask / hash / tokenise / drop) with persistent reverse-map storage (memory / database / cache), opt-in HuggingFace + spaCy NER drivers, and YAML custom-rule packs for tenant-specific identifiers. Zero external services in the default path, zero mandatory LLM cost, GDPR + EU AI Act ready.**
 
 `laravel-pii-redactor` is the seventh deliverable of the [Padosoft v4.0 cycle](https://github.com/lopadova/AskMyDocs) (W7). It is a community Apache-2.0 package, **standalone-agnostic** (zero references to AskMyDocs / sister packages), and ships with the Padosoft AI vibe-coding pack so you can extend it with Claude Code or GitHub Copilot in minutes — not days.
 
@@ -96,12 +96,20 @@ When two detectors emit overlapping byte ranges (e.g. an email-shaped string tha
 - **4 pluggable redaction strategies**: `MaskStrategy`, `HashStrategy` (deterministic, salt-derived, namespaced per detector), `TokeniseStrategy` (reversible pseudonymisation with `detokenise()` + `dumpMap()` / `loadMap()` for cross-process recovery), `DropStrategy`.
 - **Persistent reverse-map storage (v0.2)** — `TokenStore` interface + `InMemoryTokenStore` (default, process-local) + `DatabaseTokenStore` (Eloquent-backed, shipped migration `pii_token_maps`). The same `[tok:...]` token detokenises across deploys / queue workers when the database driver is wired. Switch via `PII_REDACTOR_TOKEN_STORE=database` and run `php artisan vendor:publish --tag=pii-redactor-migrations && php artisan migrate`.
 - **Audit-trail event (v0.2)** — opt-in `PiiRedactionPerformed` Laravel event fired after a `redact()` call that **produced at least one detection**, when `PII_REDACTOR_AUDIT_TRAIL=true` (or the structured `audit_trail.enabled` key is set). No-op redactions (engine disabled, empty input, zero detections) skip the dispatch — the event signals "redaction occurred", not "request processed". Event carries **counts only** (detector → match count, total, strategy name) — NEVER raw PII or redacted output. GDPR-friendly by construction.
-- **NER scaffold (v0.2)** — `NerDriver` interface + `StubNerDriver` (no-op default). Real drivers (HuggingFace + spaCy) ship in v0.3 behind the same contract; opt-in via `PII_REDACTOR_NER_ENABLED=true` + `PII_REDACTOR_NER_DRIVER=<name>`. Driver detections merge into the same overlap-resolution pipeline as first-party detectors.
+- **NER drivers (v0.2 scaffold + v0.3 production)** — `NerDriver` interface + `StubNerDriver` (no-op default), `HuggingFaceNerDriver` (HuggingFace Inference API via `Http::`, opt-in via `PII_REDACTOR_HUGGINGFACE_API_KEY`), `SpaCyNerDriver` (generic spaCy HTTP server protocol returning `Doc.to_json()` shape, opt-in via `PII_REDACTOR_SPACY_SERVER_URL`). Both real drivers fail open on HTTP errors so a NER outage cannot block deterministic redaction. Driver detections merge into the same overlap-resolution pipeline as first-party detectors.
+- **Cache-backed `TokenStore` (v0.3)** — third driver alongside `InMemoryTokenStore` and `DatabaseTokenStore`. Uses Laravel's `Illuminate\Contracts\Cache\Repository` so deployments swap between Redis / Memcached / DynamoDB / array (test) without touching package code. Maintains an explicit index entry so `dump()` / `clear()` work without scanning the backend keyspace. Optional TTL via `PII_REDACTOR_TOKEN_STORE_CACHE_TTL`. Switch with `PII_REDACTOR_TOKEN_STORE=cache`.
+- **Custom-rule YAML packs (v0.3)** — register tenant-specific detectors from `*.yaml` files. The facade contract is `Pii::extend($alias, $detector)` where `$alias` MUST equal `$detector->name()`:
+   ```php
+   $set = (new YamlCustomRuleLoader())->load(storage_path('app/pii-rules/it-albo.yaml'));
+   Pii::extend('custom_it_albo', new CustomRuleDetector('custom_it_albo', $set));
+   ```
+   Each rule has a `name` + PCRE `pattern` + optional `flags` (default `u`). Invalid PCRE is rejected at first-match time with a clear `CustomRuleException`. Useful for Italian professional registry IDs (`ISCR-...`, `Tess-XX-...`), tenant-specific account codes, project tracker identifiers, etc. v1.0 will add an SP-level auto-register loop driven by `config('pii-redactor.custom_rules.packs')`; v0.3 ships the registration as host-controlled bootstrap code.
+- **Live test suite (v0.3)** — `tests/Live/` houses opt-in tests against real APIs (HuggingFace, spaCy server). Each test self-skips unless `PII_REDACTOR_LIVE=1` AND its driver-specific credentials are set. CI runs `Unit` + `Architecture` only — Live tests are operator-driven. See `tests/Live/README.md` for the convention.
 - **Typed `DetectionReport`** — `total()`, `countsByDetector()`, `samplesByDetector(cap)`, `toArray()`. Stable JSON shape for downstream auditors.
 - **`Pii::extend()` registry** for custom detectors (`custom_codice_iscrizione_albo`, project-specific account ids, etc.).
 - **Artisan command** — `php artisan pii:scan path/to/file.txt --pretty` or `cat data | php artisan pii:scan --from=stdin` (samples masked by default; pass `--show-samples` for raw values during interactive forensics).
 - **Standalone-agnostic** — zero coupling to AskMyDocs / sister packages, enforced by an architecture test.
-- **PHP 8.3 / 8.4 / 8.5** × **Laravel 12 / 13** matrix. Pint + PHPStan level 6 + 150+ PHPUnit tests on every push.
+- **PHP 8.3 / 8.4 / 8.5** × **Laravel 12 / 13** matrix. Pint + PHPStan level 6 + 200+ PHPUnit tests on every push.
 - **Padosoft AI vibe-coding pack** (`.claude/`) — Claude Code skills (R36 review loop, R10–R37 rules) + agents (review pre-push) + commands (`/create-job`, `/domain-scaffold`).
 
 ---
@@ -316,6 +324,25 @@ src/
 database/
  └── migrations/
       └── 2026_05_03_000001_create_pii_token_maps_table.php   v0.2 — DatabaseTokenStore schema
+
+src/Ner/                                                       v0.3 — production NER drivers
+ ├── HuggingFaceNerDriver.php                                  HF Inference API via Http::
+ └── SpaCyNerDriver.php                                        spaCy server (Doc.to_json shape)
+
+src/TokenStore/CacheTokenStore.php                             v0.3 — third store driver
+
+src/CustomRules/                                               v0.3 — YAML custom-rule packs
+ ├── CustomRule.php                                            VO: name + pattern + flags
+ ├── CustomRuleSet.php                                         typed list with fromArray()
+ ├── YamlCustomRuleLoader.php                                  symfony/yaml-backed loader
+ └── CustomRuleDetector.php                                    Detector wrapping a CustomRuleSet
+
+src/Exceptions/CustomRuleException.php                         v0.3 — bad YAML / invalid PCRE
+
+tests/Live/                                                    v0.3 — opt-in real-API tests
+ ├── README.md                                                 convention + per-driver env vars
+ ├── HuggingFaceNerDriverLiveTest.php
+ └── SpaCyNerDriverLiveTest.php
 ```
 
 The engine itself is stateless with respect to the input. Calls to `redact()` / `scan()` are pure functions of `(text, registered detectors)`. Overlap resolution is left-to-right, longer-match-wins on tie — see `RedactorEngineTest::test_overlapping_detections_are_resolved_left_to_right`.
@@ -350,8 +377,8 @@ The `Live` suite is **opt-in** and reserved for v0.2+ scenarios that require a r
 ## Roadmap
 
 - **v0.1.0 (W7, shipped 2026-04-30)** — 6 deterministic detectors (`codice_fiscale`, `p_iva`, `iban`, `email`, `phone_it`, `credit_card`), 4 strategies, `Pii::extend()`, `pii:scan` command (masked samples by default), 80+ PHPUnit tests, standalone-agnostic invariant.
-- **v0.2.0 (W4.1, this PR)** — `address_it` Italian street-address heuristic detector (7th first-party detector). `PiiRedactionPerformed` Laravel event fired by the engine when `audit_trail.enabled = true`; carries counts only (no raw PII). Persistent `TokenStore` interface + `InMemoryTokenStore` (default) + `DatabaseTokenStore` (Eloquent + `pii_token_maps` migration) so reversible tokens survive deploys / cross-worker boundaries. NER `NerDriver` scaffold (`StubNerDriver` ships; real drivers in v0.3) with `withNerDriver()` immutable setter on the engine. 150+ PHPUnit tests on the v0.2 surface.
-- **v0.3.0** — `HuggingFaceNerDriver` + `SpaCyNerDriver` (HTTP-based, opt-in via `PII_REDACTOR_NER_API_KEY`). Italian custom-rule YAML loader for tenant-specific identifiers. Cache-backed `TokenStore` driver. Live test suite (markTestSkipped guard on missing env per `feedback_package_live_testsuite_opt_in`).
+- **v0.2.0 (W4.1, shipped 2026-05-03)** — `address_it` Italian street-address heuristic detector (7th first-party detector). `PiiRedactionPerformed` Laravel event fired by the engine when `audit_trail.enabled = true`; carries counts only (no raw PII). Persistent `TokenStore` interface + `InMemoryTokenStore` (default) + `DatabaseTokenStore` (Eloquent + `pii_token_maps` migration) so reversible tokens survive deploys / cross-worker boundaries. NER `NerDriver` scaffold (`StubNerDriver` ships; real drivers in v0.3) with `withNerDriver()` immutable setter on the engine. 158 PHPUnit tests on the v0.2 surface.
+- **v0.3.0 (W4.1, this PR)** — `HuggingFaceNerDriver` (HuggingFace Inference API) + `SpaCyNerDriver` (generic spaCy HTTP protocol). Italian custom-rule YAML loader (`CustomRule` + `CustomRuleSet` + `YamlCustomRuleLoader` + `CustomRuleDetector` + `CustomRuleException`). Cache-backed `TokenStore` driver (`CacheTokenStore` over `Illuminate\Contracts\Cache\Repository` with TTL + index). Live test harness (`tests/Live/` with markTestSkipped guard, `tests/Live/README.md` documenting the opt-in convention). 219 PHPUnit tests + 439 assertions on the v0.3 surface.
 - **v1.0.0** — stable surface lock + semver guarantees, formal compatibility matrix (PHP 8.3/8.4/8.5 × Laravel 12/13 supported windows), case studies + troubleshooting FAQ + performance benchmarks section in README, migration guide v0.x → v1.0, hardened SECURITY.md disclosure timeline.
 
 ---

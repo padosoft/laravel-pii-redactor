@@ -9,6 +9,8 @@ use Padosoft\PiiRedactor\Detectors\EmailDetector;
 use Padosoft\PiiRedactor\Detectors\IbanDetector;
 use Padosoft\PiiRedactor\Detectors\PartitaIvaDetector;
 use Padosoft\PiiRedactor\Detectors\PhoneItalianDetector;
+use Padosoft\PiiRedactor\Ner\HuggingFaceNerDriver;
+use Padosoft\PiiRedactor\Ner\SpaCyNerDriver;
 use Padosoft\PiiRedactor\Ner\StubNerDriver;
 
 return [
@@ -159,6 +161,57 @@ return [
         'driver' => env('PII_REDACTOR_NER_DRIVER', 'stub'),
         'drivers' => [
             'stub' => StubNerDriver::class,
+            'huggingface' => HuggingFaceNerDriver::class,
+            'spacy' => SpaCyNerDriver::class,
+        ],
+
+        /*
+        |----------------------------------------------------------------------
+        | HuggingFace Inference API driver
+        |----------------------------------------------------------------------
+        |
+        | Reads at construction time when the SP resolves the
+        | HuggingFaceNerDriver via $app->make(...). `api_key` MUST be set
+        | (the constructor throws StrategyException on empty). The default
+        | model `Davlan/bert-base-multilingual-cased-ner-hrl` covers Italian
+        | + 9 other languages; swap via PII_REDACTOR_HUGGINGFACE_MODEL when
+        | you want a more specialised model. Cold-start latency on the free
+        | inference endpoint can exceed 20s — bump the timeout if you see
+        | spurious empty returns.
+        |
+        */
+        'huggingface' => [
+            'api_key' => env('PII_REDACTOR_HUGGINGFACE_API_KEY', ''),
+            'model' => env('PII_REDACTOR_HUGGINGFACE_MODEL', 'Davlan/bert-base-multilingual-cased-ner-hrl'),
+            'base_url' => env('PII_REDACTOR_HUGGINGFACE_BASE_URL', 'https://api-inference.huggingface.co'),
+            'timeout' => (int) env('PII_REDACTOR_HUGGINGFACE_TIMEOUT', 30),
+        ],
+
+        /*
+        |----------------------------------------------------------------------
+        | spaCy HTTP server driver
+        |----------------------------------------------------------------------
+        |
+        | Generic JSON contract: POST <server_url> { "text": "..." } responds
+        | { "entities": [ { "label": ..., "start_char": ..., "end_char": ...,
+        | "text": ... }, ... ] }. That is exactly the shape
+        | `spacy.tokens.Doc.to_json()` emits, so any spaCy server returning a
+        | serialised Doc is compatible. The constructor throws
+        | StrategyException on empty `server_url`.
+        |
+        | `api_key` is OPTIONAL — the protocol allows anonymous servers (a
+        | trusted self-hosted Flask/FastAPI on a private VPC). When set, the
+        | driver attaches `Authorization: Bearer <key>`. Set `entity_map` to
+        | null (default) to use the built-in spaCy → detector mapping
+        | (PERSON/PER → person, ORG → organisation, GPE/LOC → location, NORP
+        | → group, FAC → facility); pass an array to override.
+        |
+        */
+        'spacy' => [
+            'server_url' => env('PII_REDACTOR_SPACY_SERVER_URL', ''),
+            'api_key' => env('PII_REDACTOR_SPACY_API_KEY'),
+            'timeout' => (int) env('PII_REDACTOR_SPACY_TIMEOUT', 30),
+            'entity_map' => null,
         ],
     ],
 
@@ -188,6 +241,46 @@ return [
         'database' => [
             'connection' => env('PII_REDACTOR_TOKEN_STORE_CONNECTION', null),
             'table' => env('PII_REDACTOR_TOKEN_STORE_TABLE', 'pii_token_maps'),
+        ],
+        'cache' => [
+            'store' => env('PII_REDACTOR_TOKEN_STORE_CACHE_STORE'),  // null = host's default cache
+            'prefix' => env('PII_REDACTOR_TOKEN_STORE_CACHE_PREFIX', 'pii_token:'),
+            'ttl' => (int) env('PII_REDACTOR_TOKEN_STORE_CACHE_TTL', 0),  // 0 = forever
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Custom-rule YAML packs (v0.3 — manual registration; auto-register lands in v1.0)
+    |--------------------------------------------------------------------------
+    |
+    | Per-tenant detector packs loaded from YAML files. Each pack registers
+    | as a named detector through `Pii::extend()` at the host's convenience —
+    | see README "Custom rule packs" section.
+    |
+    | v0.3 ships the loader + exception + model + detector classes
+    | (`YamlCustomRuleLoader`, `CustomRule`, `CustomRuleSet`,
+    | `CustomRuleDetector`, `CustomRuleException`). Hosts wire packs
+    | explicitly in their own bootstrap code:
+    |
+    |     $loader = new YamlCustomRuleLoader();
+    |     $set = $loader->load(storage_path('app/pii-rules/it-albo.yaml'));
+    |     Pii::extend('custom_it_albo', new CustomRuleDetector('custom_it_albo', $set));
+    |
+    | The `auto_register` switch + `packs` list shape below are RESERVED
+    | for v1.0 — the ServiceProvider walk that consumes them lands then.
+    | In v0.3 these keys are documented but not yet read by the SP.
+    | Setting `auto_register => true` today is a no-op; safe to leave at
+    | the default `false` until the v1.0 upgrade lands.
+    |
+    */
+    'custom_rules' => [
+        // RESERVED — read by v1.0 SP, ignored by v0.3.
+        'auto_register' => env('PII_REDACTOR_CUSTOM_RULES_AUTO_REGISTER', false),
+        // RESERVED shape for v1.0 auto-register loop:
+        //   [ 'name' => 'custom_it_albo', 'path' => storage_path('app/pii-rules/it-albo.yaml') ]
+        'packs' => [
+            //
         ],
     ],
 

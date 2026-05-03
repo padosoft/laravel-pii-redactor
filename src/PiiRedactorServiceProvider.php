@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor;
 
+use Illuminate\Contracts\Cache\Factory;
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\PiiRedactor\Console\PiiScanCommand;
@@ -17,6 +19,7 @@ use Padosoft\PiiRedactor\Strategies\HashStrategy;
 use Padosoft\PiiRedactor\Strategies\MaskStrategy;
 use Padosoft\PiiRedactor\Strategies\RedactionStrategy;
 use Padosoft\PiiRedactor\Strategies\TokeniseStrategy;
+use Padosoft\PiiRedactor\TokenStore\CacheTokenStore;
 use Padosoft\PiiRedactor\TokenStore\DatabaseTokenStore;
 use Padosoft\PiiRedactor\TokenStore\InMemoryTokenStore;
 use Padosoft\PiiRedactor\TokenStore\TokenStore;
@@ -173,8 +176,13 @@ final class PiiRedactorServiceProvider extends ServiceProvider
                 connection: $this->stringOrNull($config->get('pii-redactor.token_store.database.connection')),
                 table: (string) $config->get('pii-redactor.token_store.database.table', 'pii_token_maps'),
             ),
+            'cache' => new CacheTokenStore(
+                cache: $this->resolveCacheRepository($app, $config),
+                prefix: (string) $config->get('pii-redactor.token_store.cache.prefix', 'pii_token:'),
+                ttlSeconds: $this->intOrNull($config->get('pii-redactor.token_store.cache.ttl')),
+            ),
             default => throw new StrategyException(sprintf(
-                'Unknown TokenStore driver [%s]. Valid: memory, database.',
+                'Unknown TokenStore driver [%s]. Valid: memory, database, cache.',
                 $driver,
             )),
         };
@@ -188,5 +196,25 @@ final class PiiRedactorServiceProvider extends ServiceProvider
         $s = (string) $raw;
 
         return $s === '' ? null : $s;
+    }
+
+    private function resolveCacheRepository(Application $app, \Illuminate\Contracts\Config\Repository $config): Repository
+    {
+        $store = $config->get('pii-redactor.token_store.cache.store');
+        if ($store === null || $store === '') {
+            return $app->make(Repository::class);
+        }
+
+        return $app->make(Factory::class)->store((string) $store);
+    }
+
+    private function intOrNull(mixed $raw): ?int
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        $i = (int) $raw;
+
+        return $i > 0 ? $i : null;
     }
 }
