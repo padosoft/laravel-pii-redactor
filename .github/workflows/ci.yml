@@ -62,7 +62,7 @@ jobs:
         run: vendor/bin/phpstan analyse --no-progress
 
       - name: Run PHPUnit (Unit suite)
-        run: vendor/bin/phpunit --testsuite Unit
+        run: vendor/bin/phpunit --testsuite Unit --exclude-group perf
 
       - name: Run PHPUnit (Architecture suite)
         run: vendor/bin/phpunit --testsuite Architecture

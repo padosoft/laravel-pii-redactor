@@ -99,7 +99,7 @@ final class PackOverlapTest extends TestCase
      * PackException on empty list, or refuses to boot). The contract is:
      * `pii-redactor.packs => []` is a valid configuration that yields
      * an engine with ONLY the free-floating detectors registered via
-     * `pii-redactor.detectors` (multi-country) + manual `extend()` calls.
+     * `pii-redactor.detectors` (multi-country) — no Italian detectors.
      */
     public function test_engine_with_no_packs_registers_only_multi_country_detectors(): void
     {
@@ -117,6 +117,25 @@ final class PackOverlapTest extends TestCase
         $this->assertContains(EmailDetector::class, $flatDetectors);
         $this->assertContains(IbanDetector::class, $flatDetectors);
         $this->assertContains(CreditCardDetector::class, $flatDetectors);
+
+        // End-to-end: resolve the engine with packs=[] and confirm the
+        // Italian detectors are NOT registered. This is the concrete
+        // proof that removing ItalyPack from the packs array actually
+        // disables Italian-specific detection.
+        $this->app['config']->set('pii-redactor.packs', []);
+        $this->app->forgetInstance(DetectorPackRegistry::class);
+        $this->app->forgetInstance(RedactorEngine::class);
+
+        /** @var RedactorEngine $engine */
+        $engine = $this->app->make(RedactorEngine::class);
+
+        $this->assertArrayHasKey('email', $engine->detectors());
+        $this->assertArrayHasKey('iban', $engine->detectors());
+        $this->assertArrayHasKey('credit_card', $engine->detectors());
+        $this->assertArrayNotHasKey('codice_fiscale', $engine->detectors());
+        $this->assertArrayNotHasKey('p_iva', $engine->detectors());
+        $this->assertArrayNotHasKey('phone_it', $engine->detectors());
+        $this->assertArrayNotHasKey('address_it', $engine->detectors());
     }
 
     /**

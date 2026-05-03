@@ -426,7 +426,7 @@ Every key in `config/pii-redactor.php` is documented inline. Highlights:
 - `detectors` — whitelist of multi-country detector classes the ServiceProvider auto-registers (`EmailDetector`, `IbanDetector`, `CreditCardDetector` by default). Removing an entry disables the detector. Country-specific detectors are loaded via the `packs` array, not here. Custom detectors registered via `Pii::extend()` bypass this list. Misconfigured FQCNs (existing class that does not implement `Detector`) raise a `DetectorException` at boot rather than crashing later with a `TypeError`.
 - `packs` — array of `PackContract` FQCNs the ServiceProvider boots into the `DetectorPackRegistry`. Default ships `[ItalyPack::class]`. Add `GermanyPack::class` / `SpainPack::class` / etc. when v1.1+ packs land, or your own pack (see [CONTRIBUTING-PACKS.md](CONTRIBUTING-PACKS.md)). Misconfigured FQCNs are caught at boot.
 - `custom_rules.auto_register` — when `true` (v1.0+), the SP walks `custom_rules.packs` and auto-registers each YAML pack at boot. Defaults to `false` for v0.x parity.
-- `custom_rules.packs` — array of YAML pack file paths (e.g. `storage_path('app/pii-rules/it-albo.yaml')`). Each file becomes a `CustomRuleDetector` registered under the alias declared in the YAML.
+- `custom_rules.packs` — array of `['name' => '<alias>', 'path' => '<yaml-file>']` entries (e.g. `['name' => 'custom_it_albo', 'path' => storage_path('app/pii-rules/it-albo.yaml')]`). Each entry becomes a `CustomRuleDetector` registered under the given `name` alias. Boot fails with `CustomRuleException` if `name` or `path` is missing, or the file cannot be read.
 - `audit_trail_enabled` (v0.1 BC) and `audit_trail.enabled` (v0.2 structured) — when true, the engine fires `PiiRedactionPerformed` after every `redact()` call. Payload carries counts only (no raw PII or redacted output). The structured key is preferred; the flat key remains as a fallback so v0.1 hosts upgrade transparently.
 - `ner.enabled` / `ner.driver` / `ner.drivers` — opt-in NER. Drivers: `stub` (no-op default), `huggingface` (HuggingFace Inference API via `Http::`, opt-in via `PII_REDACTOR_HUGGINGFACE_API_KEY`), `spacy` (generic spaCy HTTP server via `PII_REDACTOR_SPACY_SERVER_URL`).
 - `token_store.driver` — `memory` (default) | `database` | `cache`. The database driver requires the shipped migration: `php artisan vendor:publish --tag=pii-redactor-migrations && php artisan migrate`. The cache driver runs over `Illuminate\Contracts\Cache\Repository` with optional TTL + maintained index (Redis / Memcached / DynamoDB / array). Switch with `PII_REDACTOR_TOKEN_STORE=database` or `=cache`.
@@ -453,12 +453,9 @@ src/
  │    ├── PackContract.php                 interface (name / countryCode / description / detectors)
  │    ├── DetectorPackRegistry.php         resolves config('pii-redactor.packs') into engine detectors
  │    └── Italy/
- │         ├── ItalyPack.php               default — registered in config('pii-redactor.packs')
- │         └── Detectors/
- │              ├── CodiceFiscaleDetector.php   (CIN checksum)
- │              ├── PartitaIvaDetector.php      (Luhn-IT)
- │              ├── PhoneItalianDetector.php
- │              └── AddressItalianDetector.php  (Italian street-address heuristic)
+ │         └── ItalyPack.php               default — registered in config('pii-redactor.packs')
+ │                                          aggregates CodiceFiscaleDetector, PartitaIvaDetector,
+ │                                          PhoneItalianDetector, AddressItalianDetector from src/Detectors/
  ├── Strategies/
  │    ├── RedactionStrategy.php            interface
  │    ├── MaskStrategy.php
@@ -528,12 +525,14 @@ Open the repo in Claude Code and `/help` lists everything.
 
 ```bash
 composer install
-vendor/bin/phpunit                              # Full Unit suite — default, ~400 tests, offline.
-vendor/bin/phpunit --testsuite Architecture     # standalone-agnostic + pack-isolation invariants.
-vendor/bin/phpunit --testsuite Robustness       # Unicode + boundary + 1MB-document regression gate.
+vendor/bin/phpunit                                      # Full Unit suite — default, offline.
+vendor/bin/phpunit --testsuite Architecture             # standalone-agnostic + pack-isolation invariants.
+vendor/bin/phpunit --exclude-group perf                 # Unit suite without the wall-clock perf gates.
 ```
 
-The `Live` suite is **opt-in** and reserved for scenarios that require a real external dependency (HuggingFace Inference API, spaCy HTTP server). Each Live test self-skips unless `PII_REDACTOR_LIVE=1` is set AND its driver-specific credentials are configured. CI runs Unit + Architecture + Robustness only — Live is operator-driven.
+Robustness tests (Unicode + boundary + 1MB regression) live inside the `Unit` suite. Performance-budget tests are tagged `#[Group('perf')]` and excluded from CI via `--exclude-group perf` (shared-runner wall-clock variance would make them nondeterministic). Run them locally with `vendor/bin/phpunit --group perf`.
+
+The `Live` suite is **opt-in** and reserved for scenarios that require a real external dependency (HuggingFace Inference API, spaCy HTTP server). Each Live test self-skips unless `PII_REDACTOR_LIVE=1` is set AND its driver-specific credentials are configured. CI runs Unit + Architecture only — Live is operator-driven.
 
 ---
 

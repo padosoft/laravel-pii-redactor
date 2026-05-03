@@ -291,7 +291,7 @@ Tick every box before requesting review:
 [ ] Pint --test green.
 [ ] PHPStan level 6 green (--memory-limit=512M).
 [ ] PHPUnit Unit + Architecture suites green on the full matrix (PHP 8.3 / 8.4 / 8.5, Laravel 12 / 13).
-[ ] README community-contribution table updated to mention the new pack.
+[ ] README roadmap section updated to mention the new pack (under the v1.1+ candidate list).
 [ ] CHANGELOG updated under [Unreleased] / Added.
 ```
 

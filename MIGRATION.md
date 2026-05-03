@@ -7,11 +7,11 @@ v0.x release. There are **no breaking changes**:
 
 - Existing imports continue to resolve (`Padosoft\PiiRedactor\Detectors\CodiceFiscaleDetector`
   et al. stay where they are).
-- Existing config keys (`pii-redactor.detectors`, `pii-redactor.strategies`,
+- Existing config keys (`pii-redactor.detectors`, `pii-redactor.strategy`,
   `pii-redactor.token_store`, `pii-redactor.ner`, `pii-redactor.custom_rules`,
   audit/event keys) all continue to work unchanged.
 - Existing env vars (`PII_REDACTOR_*`) all continue to work unchanged.
-- Existing migrations (`pii_token_maps`, `pii_audit_redactions`) ship in v1.0
+- Existing migrations (`pii_token_maps`) ship in v1.0
   with identical schema.
 
 Upgrade by bumping the constraint in your host's `composer.json`:

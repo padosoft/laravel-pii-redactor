@@ -66,7 +66,7 @@ final class DetectorPackRegistry
     public function packs(): array
     {
         return array_values(array_map(
-            fn (string $class): PackContract => $this->resolvePack($class),
+            fn (mixed $class): PackContract => $this->resolvePack($class),
             $this->packClasses,
         ));
     }
