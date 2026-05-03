@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\PiiRedactor\Strategies;
 
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
+use Padosoft\PiiRedactor\TokenStore\DatabaseTokenStore;
 use Padosoft\PiiRedactor\TokenStore\InMemoryTokenStore;
 use Padosoft\PiiRedactor\TokenStore\TokenStore;
 
@@ -22,7 +23,7 @@ use Padosoft\PiiRedactor\TokenStore\TokenStore;
  * v0.1 kept the bidirectional mapping inside the strategy instance.
  * v0.2 delegates persistence to a pluggable {@see TokenStore}: the
  * default {@see InMemoryTokenStore} reproduces the v0.1 behaviour
- * (process-local map), while {@see \Padosoft\PiiRedactor\TokenStore\DatabaseTokenStore}
+ * (process-local map), while {@see DatabaseTokenStore}
  * persists the map into the `pii_token_maps` table so the reverse map
  * survives deploys and horizontal scale-out.
  *

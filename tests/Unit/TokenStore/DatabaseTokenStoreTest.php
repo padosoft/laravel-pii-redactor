@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\PiiRedactor\Tests\Unit\TokenStore;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use Padosoft\PiiRedactor\PiiRedactorServiceProvider;
 use Padosoft\PiiRedactor\TokenStore\DatabaseTokenStore;
@@ -14,7 +15,7 @@ final class DatabaseTokenStoreTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * @return array<int, class-string<\Illuminate\Support\ServiceProvider>>
+     * @return array<int, class-string<ServiceProvider>>
      */
     protected function getPackageProviders($app): array
     {

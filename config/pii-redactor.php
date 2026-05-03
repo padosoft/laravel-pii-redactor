@@ -9,6 +9,7 @@ use Padosoft\PiiRedactor\Detectors\EmailDetector;
 use Padosoft\PiiRedactor\Detectors\IbanDetector;
 use Padosoft\PiiRedactor\Detectors\PartitaIvaDetector;
 use Padosoft\PiiRedactor\Detectors\PhoneItalianDetector;
+use Padosoft\PiiRedactor\Ner\StubNerDriver;
 
 return [
 
@@ -155,7 +156,7 @@ return [
         'enabled' => env('PII_REDACTOR_NER_ENABLED', false),
         'driver' => env('PII_REDACTOR_NER_DRIVER', 'stub'),
         'drivers' => [
-            'stub' => \Padosoft\PiiRedactor\Ner\StubNerDriver::class,
+            'stub' => StubNerDriver::class,
         ],
     ],
 

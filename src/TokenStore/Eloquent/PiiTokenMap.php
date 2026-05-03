@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\PiiRedactor\TokenStore\Eloquent;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
 /**
  * Eloquent model backing the `pii_token_maps` table.
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $token
  * @property string $original
  * @property string $detector
- * @property \Illuminate\Support\Carbon $created_at
+ * @property Carbon $created_at
  */
 class PiiTokenMap extends Model
 {

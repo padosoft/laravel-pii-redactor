@@ -29,8 +29,7 @@ final class DatabaseTokenStore implements TokenStore
     public function __construct(
         private readonly ?string $connection = null,
         private readonly string $table = 'pii_token_maps',
-    ) {
-    }
+    ) {}
 
     public function put(string $token, string $original): void
     {
