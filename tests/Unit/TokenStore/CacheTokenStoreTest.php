@@ -231,4 +231,3 @@ final class CacheTokenStoreTest extends TestCase
             'dump() must still see the token after its TTL was refreshed via a repeated put()');
     }
 }
-
