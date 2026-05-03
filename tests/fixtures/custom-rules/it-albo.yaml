@@ -1,0 +1,12 @@
+# Italian professional registry IDs ("iscrizione albo")
+# These are tenant-specific identifiers — host applications register them
+# via Pii::extend() to redact their own custom PII shapes.
+
+rules:
+  - name: iscrizione_albo
+    pattern: 'ISCR-\d{6,}'
+    flags: u
+
+  - name: tessera_ordine
+    pattern: '\bTess-[A-Z]{2}-\d{4,8}\b'
+    flags: u
