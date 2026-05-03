@@ -85,25 +85,26 @@ final class UnicodeAndBoundaryTest extends TestCase
     }
 
     /**
-     * Pins the documented limitation: the connective list in
-     * AddressItalianDetector::PATTERN includes `d'` but NOT `dell'`,
-     * `nell'`, `sull'`, etc. — so `Via dell'Università 1` is NOT
-     * detected today. Documenting this in a test means the next
-     * regex revision either keeps the limitation or flips the
-     * assertion deliberately, not by accident.
+     * Catches: a regression that drops the apostrophe-elided
+     * connectives (`dell'`, `nell'`, `sull'`, `all'`, `coll'`) from
+     * the pattern. The v0.3 robustness suite pinned the missing
+     * support as a known limitation; v1.0 closes it by extending
+     * the alternation to include the elided forms.
+     *
+     * Italian linguistic context: `dell'` = `della` + open vowel
+     * elision (Treccani / Accademia della Crusca); same family as
+     * `nell'`, `sull'`, `all'`, `coll'`. They appear constantly in
+     * real-world Italian addresses (Università, Olmo, Aniene…).
      */
-    public function test_address_does_not_detect_dell_apostrophe_compound_pinning_limitation(): void
+    public function test_address_detects_dell_apostrophe_compound(): void
     {
         $detector = new AddressItalianDetector;
 
         $hits = $detector->detect("Sede in Via dell'Università 1 a Bologna.");
 
-        // Limitation: `dell'` is not in the connective allowlist; the
-        // regex bails out trying to anchor on a capitalised proper noun
-        // immediately after `Via`. Real consumers sometimes lose this
-        // form. A future revision adding `dell'|nell'|sull'` to the
-        // alternation would flip this assertion to assertNotEmpty.
-        $this->assertSame([], $hits);
+        $this->assertNotEmpty($hits);
+        $this->assertStringContainsString("dell'Università", $hits[0]->value);
+        $this->assertStringContainsString('1', $hits[0]->value);
     }
 
     /**

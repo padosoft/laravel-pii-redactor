@@ -9,11 +9,16 @@ use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\PiiRedactor\Console\PiiScanCommand;
+use Padosoft\PiiRedactor\CustomRules\CustomRuleDetector;
+use Padosoft\PiiRedactor\CustomRules\YamlCustomRuleLoader;
 use Padosoft\PiiRedactor\Detectors\Detector;
+use Padosoft\PiiRedactor\Exceptions\CustomRuleException;
 use Padosoft\PiiRedactor\Exceptions\DetectorException;
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
 use Padosoft\PiiRedactor\Ner\NerDriver;
 use Padosoft\PiiRedactor\Ner\StubNerDriver;
+use Padosoft\PiiRedactor\Packs\DetectorPackRegistry;
+use Padosoft\PiiRedactor\Packs\PackContract;
 use Padosoft\PiiRedactor\Strategies\DropStrategy;
 use Padosoft\PiiRedactor\Strategies\HashStrategy;
 use Padosoft\PiiRedactor\Strategies\MaskStrategy;
@@ -41,6 +46,13 @@ final class PiiRedactorServiceProvider extends ServiceProvider
         $this->app->singleton(TokenStore::class, fn (Application $app): TokenStore => $this->buildTokenStore($app));
 
         $this->app->singleton(RedactionStrategy::class, fn (Application $app): RedactionStrategy => $this->buildStrategy($app));
+
+        $this->app->singleton(DetectorPackRegistry::class, function (Application $app): DetectorPackRegistry {
+            $packs = (array) $app['config']->get('pii-redactor.packs', []);
+
+            /** @var list<class-string<PackContract>|string> $packs */
+            return new DetectorPackRegistry($app, array_values($packs));
+        });
 
         $this->app->singleton(NerDriver::class, function (Application $app): NerDriver {
             $config = $app['config'];
@@ -104,6 +116,17 @@ final class PiiRedactorServiceProvider extends ServiceProvider
                 $engine->register($detector);
             }
 
+            // v1.0: pack-aggregated detectors registered ON TOP of the existing
+            // `pii-redactor.detectors` list. Both surfaces coexist for backward
+            // compat — the flat list is the legacy entry point, packs are the
+            // preferred jurisdiction-aware grouping. The DetectorPackRegistry
+            // throws PackException on misconfiguration; that surfaces here at
+            // boot rather than silently shipping a host with disabled coverage.
+            $registry = $app->make(DetectorPackRegistry::class);
+            foreach ($registry->detectors() as $detector) {
+                $engine->register($detector);
+            }
+
             return $engine;
         });
 
@@ -126,6 +149,57 @@ final class PiiRedactorServiceProvider extends ServiceProvider
             $this->commands([
                 PiiScanCommand::class,
             ]);
+        }
+
+        $this->autoRegisterCustomRulePacks();
+    }
+
+    /**
+     * Walk `config('pii-redactor.custom_rules.packs')` at boot and register
+     * each YAML pack as a CustomRuleDetector with the engine. Closes the
+     * v0.3 deferred TODO — hosts list their packs in config and the SP
+     * does the wiring instead of every host repeating the boilerplate.
+     *
+     * Skipped entirely when `custom_rules.auto_register` is false (the
+     * default), so v0.3 hosts that already wire packs manually via
+     * `Pii::extend()` are unaffected.
+     *
+     * Each pack entry must be `['name' => '...', 'path' => '...']`. Both
+     * fields are required and non-empty; missing / invalid entries surface
+     * as `CustomRuleException` so misconfiguration fails fast at boot.
+     */
+    private function autoRegisterCustomRulePacks(): void
+    {
+        $config = $this->app['config'];
+        if (! (bool) $config->get('pii-redactor.custom_rules.auto_register', false)) {
+            return;
+        }
+        $packs = (array) $config->get('pii-redactor.custom_rules.packs', []);
+        if ($packs === []) {
+            return;
+        }
+
+        $loader = new YamlCustomRuleLoader;
+        $engine = $this->app->make(RedactorEngine::class);
+
+        foreach ($packs as $i => $entry) {
+            if (! is_array($entry)) {
+                throw new CustomRuleException(sprintf(
+                    'pii-redactor.custom_rules.packs[%d] must be an array with `name` and `path` keys.',
+                    $i,
+                ));
+            }
+            $name = isset($entry['name']) && is_string($entry['name']) ? $entry['name'] : '';
+            $path = isset($entry['path']) && is_string($entry['path']) ? $entry['path'] : '';
+            if ($name === '' || $path === '') {
+                throw new CustomRuleException(sprintf(
+                    'pii-redactor.custom_rules.packs[%d] requires a non-empty `name` and `path`.',
+                    $i,
+                ));
+            }
+
+            $set = $loader->load($path);
+            $engine->register(new CustomRuleDetector($name, $set));
         }
     }
 

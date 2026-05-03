@@ -12,6 +12,7 @@ use Padosoft\PiiRedactor\Detectors\PhoneItalianDetector;
 use Padosoft\PiiRedactor\Ner\HuggingFaceNerDriver;
 use Padosoft\PiiRedactor\Ner\SpaCyNerDriver;
 use Padosoft\PiiRedactor\Ner\StubNerDriver;
+use Padosoft\PiiRedactor\Packs\Italy\ItalyPack;
 
 return [
 
@@ -282,6 +283,33 @@ return [
         'packs' => [
             //
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | EU country packs (v1.0)
+    |--------------------------------------------------------------------------
+    |
+    | List of `PackContract`-implementing FQCNs whose detectors are registered
+    | with the engine at boot. Each pack aggregates the jurisdiction-specific
+    | detectors for one country / region — e.g. `ItalyPack` ships codice
+    | fiscale + P.IVA + Italian phone + Italian address.
+    |
+    | Multi-country detectors (Email, IBAN, CreditCard) are NOT pack members;
+    | they live in the top-level `pii-redactor.detectors` list above and run
+    | regardless of which packs are enabled.
+    |
+    | To enable additional jurisdictions, install the corresponding community
+    | pack (or write your own per `CONTRIBUTING-PACKS.md`) and add the FQCN
+    | here. To disable a default pack (e.g. an English-only deployment that
+    | doesn't redact Italian fiscal codes), remove its entry.
+    |
+    | Roadmap (v1.1+): GermanyPack, SpainPack. v1.2+ candidates: FrancePack,
+    | NetherlandsPack, PortugalPack.
+    |
+    */
+    'packs' => [
+        ItalyPack::class,
     ],
 
 ];

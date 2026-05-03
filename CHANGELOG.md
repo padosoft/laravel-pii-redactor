@@ -6,6 +6,144 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-03
+
+### Added — EU country pack architecture
+
+- **`Padosoft\PiiRedactor\Packs\PackContract`** — interface defining
+  `name()` / `countryCode()` / `description()` / `detectors(): list<Detector>`.
+  The foundation for community-contributed country packs (Germany, Spain,
+  France, Netherlands, Portugal, Iceland, etc.).
+- **`Padosoft\PiiRedactor\Packs\Italy\ItalyPack`** — reference implementation
+  aggregating the four existing IT detectors (`CodiceFiscaleDetector`,
+  `PartitaIvaDetector`, `PhoneItalianDetector`, `AddressItalianDetector`).
+  Backward-compatible: existing detector classes stay in `src/Detectors/`;
+  the pack aggregates without relocating.
+- **`Padosoft\PiiRedactor\Packs\DetectorPackRegistry`** — service that walks
+  `config('pii-redactor.packs')`, container-resolves each FQCN, validates
+  `PackContract` + `Detector` contracts, returns the concatenated detector
+  list. Throws `PackException` on invalid entries.
+- **`Padosoft\PiiRedactor\Exceptions\PackException`** — extends
+  `PiiRedactorException`. Surfaces missing FQCN / wrong contract.
+- **`config('pii-redactor.packs')`** — new config key. Default
+  `[\Padosoft\PiiRedactor\Packs\Italy\ItalyPack::class]` preserves v0.x
+  behavior. Hosts disable Italy by removing the entry; hosts enable
+  community packs (v1.1+) by adding their FQCN.
+- **`PiiRedactorServiceProvider`** — extended `RedactorEngine` resolver
+  with a pack-detector loop AFTER the existing flat-list loop. Both
+  surfaces coexist (v0.x flat list + v1.0 packs).
+
+### Added — Community documentation
+
+- **`CONTRIBUTING-PACKS.md`** (343 lines) — community guide for country-pack
+  PRs. Covers: when to use a pack vs YAML rules, pack structure on disk,
+  `PackContract` walkthrough, checksum implementation discipline (cite
+  spec source + 10 valid + 5 invalid + 5 wrong-format fixtures), R37
+  standalone-agnostic invariant, test parity, PR checklist, 7-day review
+  SLA, Apache-2.0 licensing.
+- **`MIGRATION.md`** (167 lines) — v0.x → v1.0 zero-friction upgrade guide.
+  Covers what's new architecturally, what hosts MAY do (additive `packs`
+  config), what they MUST NOT do, and the formal v1.0 PHP/Laravel
+  compatibility lock.
+- **`SECURITY.md`** (replaced 16-line minimal version with 83-line
+  community-grade) — supported-versions table, security@padosoft.com
+  reporting, 90-day default disclosure with 2/5/7-day SLAs, six in-scope
+  vulnerability classes, three out-of-scope, hall-of-fame section.
+
+### Added — Custom rules SP auto-register loop (closes v0.3 deferred TODO)
+
+- **`config('pii-redactor.custom_rules.auto_register')`** — when `true`,
+  the SP boot walks `custom_rules.packs[]` and registers each YAML pack
+  via `Pii::extend('<name>', new CustomRuleDetector('<name>', $set))`.
+  Validation errors throw `CustomRuleException` at boot.
+- v0.3 hosts using manual `Pii::extend()` bootstrap continue working
+  unchanged. v1.0 hosts can switch to declarative config.
+
+### Added — Robustness suite v2
+
+- **`tests/Unit/Robustness/PackOverlapTest.php`** (3 tests) — pins
+  pack-overlap behavior: free-floating detector vs pack same-name
+  collision; empty pack list still registers multi-country detectors;
+  two packs same `name()` collapse via engine `register()`.
+- **`tests/Unit/Robustness/PerfBenchTest.php`** (5 tests, `#[Group('perf')]`) —
+  pins performance budgets: empty `<1ms`, 1KB `<10ms`, 100KB `<100ms`,
+  1MB `<2000ms`, peak memory delta `<64MB`.
+- **`tests/Unit/Robustness/StreamingTest.php`** (3 tests) — 100
+  incremental redact() calls memory ceiling `<16MB`; redact()/scan()
+  count agreement; second-pass scan() on redacted output returns 0.
+- **`tests/Unit/Robustness/ConcurrencyTest.php`** extended with 2 v2
+  scenarios — 100 sequential `DatabaseTokenStore::put()` collapse on
+  duplicate token (UNIQUE invariant); 100 distinct tokens yield 100
+  rows.
+- **`tests/Unit/Packs/`** — 14 new tests across `PackContractTest`,
+  `Italy/ItalyPackTest`, `DetectorPackRegistryTest`.
+- **`tests/Unit/CustomRules/AutoRegisterTest.php`** (8 tests) — covers
+  the new SP auto-register loop end-to-end.
+
+### Changed
+
+- **`AddressItalianDetector`** — connective alternation extended with
+  apostrophe-elided forms (`dell'`, `nell'`, `sull'`, `all'`, `coll'`)
+  plus `dello`. `Via dell'Università 1` now detects (was a v0.3 known
+  limitation pinned by the robustness suite). Treccani citation in the
+  docblock.
+- **`CustomRuleDetector::detect()`** — zero-length matches (`a*` against
+  `"hello"`) are now filtered with a `length === 0` continue guard.
+  Prevents pollution of the detection report with empty matches.
+- **`composer.json`** — `minimum-stability: dev` → `minimum-stability:
+  stable`. v1.0 stable lock; the package is no longer dev-stability.
+  `prefer-stable: true` retained.
+- **README.md** — major polish for community release. New
+  **🇪🇺 EU country pack architecture** WOW section with ASCII tree +
+  enable/disable examples. New **Build your own country pack — 3-step
+  recipe** (Iceland `KennitalaDetector` example) + community
+  contribution CTA. New **Performance** section with concrete benchmarks
+  (1KB ~0.4ms / 100KB ~25ms / 1MB ~280ms / <8MB memory) + NER latency
+  notes. New **Migration guide v0.x → v1.0** section. Tagline bumped from
+  "Italian-first" to "EU-first". Roadmap updated with v1.1+ candidates
+  (Germany, Spain, France, Netherlands, Portugal).
+
+### Backward compatibility
+
+v1.0 is a **drop-in upgrade** from v0.3 / v0.2 / v0.1 — **no breaking
+changes**. Existing hosts:
+- Continue importing `Padosoft\PiiRedactor\Detectors\CodiceFiscaleDetector`
+  (and the other 3 IT detectors) directly. They stay where they are.
+- Continue using the flat `pii-redactor.detectors` config list. Both
+  surfaces coexist.
+- Continue using `pii-redactor.audit_trail.enabled`,
+  `pii-redactor.token_store.driver`, `pii-redactor.ner.*` config keys.
+- Continue using `Pii::extend()` for runtime detector registration.
+
+### Compatibility matrix (formal v1.0 lock)
+
+| Pkg version | PHP supported | Laravel supported |
+|---|---|---|
+| **1.0.x** | **8.3 / 8.4 / 8.5** | **12.x / 13.x** |
+| 0.3.x | 8.3 / 8.4 / 8.5 | 12.x / 13.x |
+| 0.2.x | 8.3 / 8.4 / 8.5 | 12.x / 13.x |
+
+Future minors (v1.1, v1.2) MAY ADD support for newer PHP / Laravel; they
+will not drop support for the listed versions during the v1.x lifetime.
+
+### Test surface
+
+**368 tests, 981 assertions** — up from v0.3's 320 / 658.
+
+### Implementation notes
+
+The v1.0 work was scaffolded by **5 parallel Claude sub-agents** under
+strict file allowlists:
+- Agent A: PackContract + ItalyPack
+- Agent B: DetectorPackRegistry + SP auto-register loops
+- Agent C: README WOW polish (EU pack section + 3-step recipe + perf + migration)
+- Agent D: CONTRIBUTING-PACKS.md + MIGRATION.md + SECURITY.md + composer
+- Agent E: Robustness v2 + AddressItalianDetector fix + CustomRuleDetector filter
+
+Strictly partitioned scopes prevented merge conflicts on the shared
+ServiceProvider + config. Pattern proven scalable: v0.2 (3 agents) →
+v0.3 (5 agents) → v1.0 (5 agents).
+
 ## [0.3.0] - 2026-05-03
 
 ### Added
@@ -258,7 +396,8 @@ hosts:
   NOT require any sister Padosoft package and does NOT reference
   AskMyDocs symbols. Enforced on every CI run.
 
-[Unreleased]: https://github.com/padosoft/laravel-pii-redactor/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/padosoft/laravel-pii-redactor/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/padosoft/laravel-pii-redactor/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/padosoft/laravel-pii-redactor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/padosoft/laravel-pii-redactor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/padosoft/laravel-pii-redactor/releases/tag/v0.1.0

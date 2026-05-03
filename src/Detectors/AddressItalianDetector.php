@@ -11,6 +11,10 @@ namespace Padosoft\PiiRedactor\Detectors;
  *  - `Via Roma 12`
  *  - `Via Roma, 12` / `Via Roma 12/A` / `Via Roma 12bis` / `Via Roma 12 ter`
  *  - `Via dei Mille 5` / `Via della Repubblica 22` / `Via d'Annunzio 1`
+ *  - `Via dell'Università 1` / `Via nell'Orto 3` / `Via sull'Arno 5` /
+ *    `Via all'Adige 7` / `Via coll'Aniene 9` (apostrophe-elided
+ *    connectives — `dell'` from `della` + open vowel, etc.; standard
+ *    Italian elision per Treccani / Accademia della Crusca).
  *  - `Piazza Cavalieri di Vittorio Veneto 1`
  *  - `Via Roma 12 - 50100 Firenze` (CAP + city, only when a civic number
  *    has already been consumed)
@@ -53,8 +57,15 @@ final class AddressItalianDetector implements Detector
         'Località|Loc\.'.
         ')'.
         // 2) Optional connective particles (lowercase) — `dei`, `della`,
-        //    `del`, `di`, `d'`, `degli`, `delle`. Multiple allowed.
-        '(?:\s+(?:dei|della|delle|degli|del|di|d\'))*'.
+        //    `del`, `di`, `d'`, `degli`, `delle` PLUS the apostrophe-
+        //    elided forms `dell'`, `nell'`, `sull'`, `all'`, `coll'`
+        //    (preposition + article elided before an open vowel — see
+        //    Treccani/Accademia della Crusca). Multiple allowed.
+        //    The longer forms (`dell'`, `nell'`, `sull'`, `coll'`) are
+        //    listed BEFORE their shorter cousins (`del`, `di`, `d'`)
+        //    so the regex engine prefers the elided variant when both
+        //    could match — `di` would otherwise eat the `dell\'` head.
+        '(?:\s+(?:dell\'|nell\'|sull\'|coll\'|all\'|dei|della|delle|degli|dello|del|di|d\'))*'.
         // 3) Mandatory separator + capitalized street-name word. The
         //    separator is whitespace, OR the lookbehind `(?<=\')` so the
         //    `d'Annunzio` form (apostrophe directly glued to the name)
@@ -62,8 +73,9 @@ final class AddressItalianDetector implements Detector
         '(?:\s+|(?<=\'))[A-ZÀ-Ý][A-Za-zÀ-ÿ\']*'.
         // 4) Optional additional name tokens (extra capitalized words or
         //    lowercase connectives). We deliberately allow whitespace +
-        //    (capitalized | connective) repeated.
-        '(?:\s+(?:[A-ZÀ-Ý][A-Za-zÀ-ÿ\']*|dei|della|delle|degli|del|di|d\'))*'.
+        //    (capitalized | connective) repeated. Same elision-aware
+        //    alternation as in step 2.
+        '(?:\s+(?:[A-ZÀ-Ý][A-Za-zÀ-ÿ\']*|dell\'|nell\'|sull\'|coll\'|all\'|dei|della|delle|degli|dello|del|di|d\'))*'.
         // 5) Optional civic-number block. Comma optional; `n.` optional;
         //    civic suffix `/A`, `bis`, `ter` optional.
         '(?:'.

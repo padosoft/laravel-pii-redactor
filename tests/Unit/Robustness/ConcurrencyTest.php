@@ -295,6 +295,58 @@ final class ConcurrencyTest extends TestCase
     }
 
     /**
+     * v1.0 robustness v2: simulate 100 "concurrent" writers all
+     * targeting the SAME token. PHPUnit cannot truly fork PHP, so
+     * we model the concurrency window with 100 sequential puts on
+     * fresh DatabaseTokenStore instances — each instance opens its
+     * own query against the shared connection. The SQL UNIQUE
+     * constraint on `token` must collapse all 100 attempts into a
+     * single row regardless of writer interleaving.
+     *
+     * Catches: a regression that drops the UNIQUE index on
+     * `pii_token_maps.token` (e.g. a migration refactor that loses
+     * the constraint). Without the unique index, `updateOrCreate`
+     * could leave duplicate rows under interleaved writes.
+     */
+    public function test_database_token_store_one_hundred_writers_same_token_yield_one_row(): void
+    {
+        for ($i = 0; $i < 100; $i++) {
+            // Fresh instance per iteration models the "different worker"
+            // boundary — each instance constructs its own query builder.
+            $store = new DatabaseTokenStore;
+            $store->put('[tok:email:HOTSPOT]', sprintf('writer%d@x.com', $i));
+        }
+
+        // All 100 writers targeted the same token. The SQL UNIQUE on
+        // `token` collapses to exactly one row. Last-write-wins on
+        // the `original` column.
+        $reader = new DatabaseTokenStore;
+        $dump = $reader->dump();
+        $this->assertCount(1, $dump);
+        $this->assertArrayHasKey('[tok:email:HOTSPOT]', $dump);
+        $this->assertSame('writer99@x.com', $dump['[tok:email:HOTSPOT]']);
+    }
+
+    /**
+     * v1.0 robustness v2: 100 distinct tokens through a single shared
+     * connection (different "writers" instantiating their own store
+     * objects). Pin that the UNIQUE on `token` does NOT block
+     * inserts of distinct tokens — only same-token attempts collapse.
+     * Confirms the constraint is column-scoped, not row-scoped.
+     */
+    public function test_database_token_store_one_hundred_writers_distinct_tokens_yield_one_hundred_rows(): void
+    {
+        for ($i = 0; $i < 100; $i++) {
+            $store = new DatabaseTokenStore;
+            $store->put(sprintf('[tok:email:N%03d]', $i), sprintf('user%d@x.com', $i));
+        }
+
+        $reader = new DatabaseTokenStore;
+        $dump = $reader->dump();
+        $this->assertCount(100, $dump);
+    }
+
+    /**
      * Catches: a regression in CacheTokenStore::clear() that fails to
      * remove the index key, leaving stale entries in the dump output.
      * Even with two instances writing/clearing alternately, a final
