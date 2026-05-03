@@ -62,6 +62,9 @@ jobs:
         run: vendor/bin/phpstan analyse --no-progress
 
       - name: Run PHPUnit (Unit suite)
+        # Excludes the `perf` group: PerfBenchTest pins sub-millisecond budgets
+        # that go nondeterministic on shared CI runners. Run them locally
+        # (or in a dedicated benchmark job) with `vendor/bin/phpunit --group perf`.
         run: vendor/bin/phpunit --testsuite Unit --exclude-group perf
 
       - name: Run PHPUnit (Architecture suite)

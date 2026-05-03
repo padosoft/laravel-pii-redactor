@@ -118,24 +118,25 @@ final class PackOverlapTest extends TestCase
         $this->assertContains(IbanDetector::class, $flatDetectors);
         $this->assertContains(CreditCardDetector::class, $flatDetectors);
 
-        // End-to-end: resolve the engine with packs=[] and confirm the
-        // Italian detectors are NOT registered. This is the concrete
-        // proof that removing ItalyPack from the packs array actually
-        // disables Italian-specific detection.
+        // End-to-end regression-gate: resolve the engine with packs=[] and
+        // confirm the Italian detectors are NOT registered. Concrete proof
+        // that removing ItalyPack from the packs array actually disables
+        // Italian-specific detection — the v1.0 promise the README makes.
         $this->app['config']->set('pii-redactor.packs', []);
         $this->app->forgetInstance(DetectorPackRegistry::class);
         $this->app->forgetInstance(RedactorEngine::class);
 
         /** @var RedactorEngine $engine */
         $engine = $this->app->make(RedactorEngine::class);
+        $registered = $engine->detectors();
 
-        $this->assertArrayHasKey('email', $engine->detectors());
-        $this->assertArrayHasKey('iban', $engine->detectors());
-        $this->assertArrayHasKey('credit_card', $engine->detectors());
-        $this->assertArrayNotHasKey('codice_fiscale', $engine->detectors());
-        $this->assertArrayNotHasKey('p_iva', $engine->detectors());
-        $this->assertArrayNotHasKey('phone_it', $engine->detectors());
-        $this->assertArrayNotHasKey('address_it', $engine->detectors());
+        $this->assertArrayHasKey('email', $registered);
+        $this->assertArrayHasKey('iban', $registered);
+        $this->assertArrayHasKey('credit_card', $registered);
+        $this->assertArrayNotHasKey('codice_fiscale', $registered, 'ItalyPack disabled but codice_fiscale still leaked into the engine.');
+        $this->assertArrayNotHasKey('p_iva', $registered);
+        $this->assertArrayNotHasKey('phone_it', $registered);
+        $this->assertArrayNotHasKey('address_it', $registered);
     }
 
     /**

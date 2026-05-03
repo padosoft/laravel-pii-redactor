@@ -65,6 +65,11 @@ final class DetectorPackRegistry
      */
     public function packs(): array
     {
+        // Route every entry through resolvePack() so non-string / unknown /
+        // wrong-contract values surface as PackException — matching the
+        // behavior of detectors() above. A naked typed callback would throw
+        // TypeError first on non-string entries and skip the carefully-worded
+        // PackException, leaving the public API inconsistent.
         return array_values(array_map(
             fn (mixed $class): PackContract => $this->resolvePack($class),
             $this->packClasses,

@@ -9,10 +9,11 @@ v0.x release. There are **no breaking changes**:
   et al. stay where they are).
 - Existing config keys (`pii-redactor.detectors`, `pii-redactor.strategy`,
   `pii-redactor.token_store`, `pii-redactor.ner`, `pii-redactor.custom_rules`,
-  audit/event keys) all continue to work unchanged.
+  `pii-redactor.audit_trail`, `pii-redactor.audit_trail_enabled`) all
+  continue to work unchanged.
 - Existing env vars (`PII_REDACTOR_*`) all continue to work unchanged.
-- Existing migrations (`pii_token_maps`) ship in v1.0
-  with identical schema.
+- The shipped migration `pii_token_maps` (introduced in v0.2) ships in v1.0
+  with identical schema — no action required.
 
 Upgrade by bumping the constraint in your host's `composer.json`:
 
