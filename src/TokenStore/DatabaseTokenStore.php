@@ -19,10 +19,18 @@ use Padosoft\PiiRedactor\TokenStore\Eloquent\PiiTokenMap;
  * under the `pii-redactor-migrations` tag from
  * `PiiRedactorServiceProvider::boot()`.
  *
- * Memory hygiene (CLAUDE.md R3): `dump()` uses `chunkById(500)` so a
- * full-table dump never materialises every row at once, and `load()`
- * batches `upsert()` in 500-row windows so a giant restore stays
- * memory-bounded.
+ * Memory hygiene (CLAUDE.md R3):
+ * - `dump()` uses `chunkById(500)` to avoid loading every Eloquent model
+ *   into memory simultaneously; the assembled `array<string, string>`
+ *   STILL grows to the full table size by design — the method exists
+ *   for snapshot/backup workflows (see `dumpMap()` / `loadMap()` on
+ *   `TokeniseStrategy`), NOT for the per-request detokenisation path.
+ *   Use `TokeniseStrategy::detokeniseString()` for runtime detokenisation
+ *   — it scans the input and only fetches tokens actually referenced.
+ * - `load()` replaces the existing table contents (clear-then-insert),
+ *   matching `InMemoryTokenStore::load()` so both drivers expose the
+ *   same observable contract. The insert is chunked in 500-row windows
+ *   so a giant restore stays memory-bounded.
  */
 final class DatabaseTokenStore implements TokenStore
 {
@@ -86,10 +94,20 @@ final class DatabaseTokenStore implements TokenStore
     }
 
     /**
+     * Replaces the existing token map with the supplied entries — matches
+     * the InMemoryTokenStore::load() semantic so both drivers behave
+     * identically for `TokeniseStrategy::loadMap()`.
+     *
+     * Existing rows are dropped via {@see clear()} BEFORE the bulk insert
+     * so callers always observe the post-load state to be exactly the
+     * supplied map (no stale entries from a prior session).
+     *
      * @param  array<string, string>  $map
      */
     public function load(array $map): void
     {
+        $this->clear();
+
         if ($map === []) {
             return;
         }
@@ -103,19 +121,17 @@ final class DatabaseTokenStore implements TokenStore
             ];
         }
 
-        // Chunk the upsert so the generated SQL stays well below
-        // any driver's max-bind / max-statement-size limit.
+        // Chunk the insert so the generated SQL stays well below any
+        // driver's max-bind / max-statement-size limit.
         foreach (array_chunk($rows, 500) as $batch) {
-            $this->newQuery()->upsert(
-                $batch,
-                ['token'],
-                ['original', 'detector'],
-            );
+            $this->newQuery()->insert($batch);
         }
     }
 
     /**
      * Build a fresh Eloquent query against the configured connection + table.
+     *
+     * @return Builder<PiiTokenMap>
      */
     private function newQuery(): Builder
     {

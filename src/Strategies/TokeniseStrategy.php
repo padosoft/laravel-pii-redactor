@@ -42,6 +42,18 @@ final class TokeniseStrategy implements RedactionStrategy
 {
     private readonly TokenStore $store;
 
+    /**
+     * Per-instance cache of tokens already minted in this process. Lets
+     * `apply()` short-circuit without round-tripping the underlying store
+     * on repeated occurrences of the same `(detector, original)` pair —
+     * preserves v0.1's in-memory reverse-index performance regardless of
+     * which {@see TokenStore} driver is wired (memory / database / future
+     * cache).
+     *
+     * @var array<string, true>
+     */
+    private array $mintedThisProcess = [];
+
     public function __construct(
         private readonly string $salt,
         private readonly int $idHexLength = 16,
@@ -74,9 +86,16 @@ final class TokeniseStrategy implements RedactionStrategy
         $idHex = substr(hash('sha256', $this->salt.':'.$detectorName.':'.$original), 0, $this->idHexLength);
         $token = '[tok:'.$detectorName.':'.$idHex.']';
 
-        // put() is idempotent on duplicate token, so re-applying the
-        // same input is a cheap upsert — no special-case branch needed.
+        // Fast path: this process already minted this exact token, so
+        // skip the store write entirely. Critical for hot redaction loops
+        // backed by DatabaseTokenStore — without this short-circuit every
+        // repeated occurrence would issue a redundant `updateOrCreate`.
+        if (isset($this->mintedThisProcess[$token])) {
+            return $token;
+        }
+
         $this->store->put($token, $original);
+        $this->mintedThisProcess[$token] = true;
 
         return $token;
     }
@@ -88,7 +107,32 @@ final class TokeniseStrategy implements RedactionStrategy
 
     public function detokeniseString(string $text): string
     {
-        $map = $this->store->dump();
+        if ($text === '') {
+            return $text;
+        }
+
+        // Scan the input for `[tok:<detector>:<hex>]` literals and only
+        // fetch THOSE tokens from the store. Critical for the database
+        // driver — loading every persisted token to detokenise a single
+        // payload would scale latency + memory with the global table
+        // size instead of the input size.
+        if (preg_match_all('/\[tok:[A-Za-z0-9_]+:[0-9a-f]+\]/', $text, $matches) === false) {
+            return $text;
+        }
+
+        $tokens = array_unique($matches[0]);
+        if ($tokens === []) {
+            return $text;
+        }
+
+        $map = [];
+        foreach ($tokens as $token) {
+            $original = $this->store->get($token);
+            if ($original !== null) {
+                $map[$token] = $original;
+            }
+        }
+
         if ($map === []) {
             return $text;
         }
@@ -97,6 +141,12 @@ final class TokeniseStrategy implements RedactionStrategy
     }
 
     /**
+     * Materialise the full token → original map. Backed by
+     * {@see TokenStore::dump()}; for the DatabaseTokenStore this loads
+     * every persisted row and is intended for snapshot / backup
+     * workflows. Use {@see detokeniseString()} for runtime detokenisation
+     * — it scans the input and fetches only the referenced tokens.
+     *
      * @return array<string, string>
      */
     public function dumpMap(): array
@@ -105,23 +155,29 @@ final class TokeniseStrategy implements RedactionStrategy
     }
 
     /**
-     * Restore a previously-dumped map. Used to recover state across
-     * process boundaries — and, since v0.2, also the path that the
-     * `pii-redactor:rehydrate` Artisan command will use to seed the
-     * DatabaseTokenStore from a JSON dump.
+     * Restore a previously-dumped map, replacing any existing entries.
      *
-     * Reverse-index reconstruction is now the store's responsibility:
-     * the token format `[tok:<detector>:<hex>]` is deterministic from
-     * `(salt, detector, original)`, so {@see apply()} computes it
-     * directly without consulting any cached lookup. The store only
-     * has to remember `token → original` for detokenisation, which is
-     * exactly what {@see TokenStore::load()} does.
+     * Both {@see InMemoryTokenStore::load()} and
+     * {@see DatabaseTokenStore::load()} drop the prior contents before
+     * inserting the new map, so callers see the post-load state to be
+     * exactly the supplied entries.
+     *
+     * Reverse-index reconstruction is the store's responsibility — the
+     * token format `[tok:<detector>:<hex>]` is deterministic from
+     * `(salt, detector, original)` so {@see apply()} computes it
+     * directly without consulting any cached lookup. The store only has
+     * to remember `token → original` for detokenisation.
+     *
+     * After loadMap(), the per-instance `mintedThisProcess` cache is
+     * cleared so the freshly-loaded tokens get the same lazy verify-or-
+     * write treatment as new mappings.
      *
      * @param  array<string, string>  $map
      */
     public function loadMap(array $map): void
     {
         $this->store->load($map);
+        $this->mintedThisProcess = [];
     }
 
     /**

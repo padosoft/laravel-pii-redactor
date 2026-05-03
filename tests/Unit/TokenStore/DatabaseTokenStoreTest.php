@@ -121,23 +121,48 @@ final class DatabaseTokenStoreTest extends TestCase
         $this->assertSame('shared@x.com', $b->get('[tok:email:cross]'));
     }
 
-    public function test_load_upsert_overwrites_existing_original(): void
+    public function test_load_replaces_existing_entries(): void
     {
+        // load() is the rehydrate path: callers expect the post-load
+        // store to contain EXACTLY the supplied map — not a merge with
+        // whatever was there before. Same semantic as
+        // InMemoryTokenStore::load().
+        $store = new DatabaseTokenStore;
+        $store->put('[tok:email:keep]', 'kept@x.com');
+        $store->put('[tok:email:drop]', 'dropped@x.com');
+
+        $store->load(['[tok:email:replaced]' => 'replaced@x.com']);
+
+        $this->assertSame(
+            ['[tok:email:replaced]' => 'replaced@x.com'],
+            $store->dump(),
+            'load() must replace the existing rows, not merge with them',
+        );
+        $this->assertFalse($store->has('[tok:email:keep]'));
+        $this->assertFalse($store->has('[tok:email:drop]'));
+    }
+
+    public function test_load_with_replacement_value_for_same_token(): void
+    {
+        // Same token, different original — replace wins (last write).
         $store = new DatabaseTokenStore;
         $store->put('[tok:email:dup]', 'old@x.com');
 
-        // Load is the rehydrate path; same token with new original
-        // must overwrite (last write wins).
         $store->load(['[tok:email:dup]' => 'new@x.com']);
 
         $this->assertSame('new@x.com', $store->get('[tok:email:dup]'));
     }
 
-    public function test_load_empty_map_is_a_noop(): void
+    public function test_load_empty_map_clears_existing_entries(): void
     {
+        // load([]) is the documented "wipe" path — both drivers must
+        // observe the same post-load empty state.
         $store = new DatabaseTokenStore;
+        $store->put('[tok:email:abc]', 'one@x.com');
+
         $store->load([]);
 
         $this->assertSame([], $store->dump());
+        $this->assertFalse($store->has('[tok:email:abc]'));
     }
 }

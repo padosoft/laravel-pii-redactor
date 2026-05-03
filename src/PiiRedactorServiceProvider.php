@@ -66,8 +66,16 @@ final class PiiRedactorServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(RedactorEngine::class, function (Application $app): RedactorEngine {
-            $auditTrailEnabled = (bool) ($app['config']->get('pii-redactor.audit_trail.enabled')
-                ?? $app['config']->get('pii-redactor.audit_trail_enabled', false));
+            // Honor BOTH the structured v0.2 key and the v0.1 flat key —
+            // either being truthy enables the audit trail. The previous
+            // null-coalescing form short-circuited on the first key
+            // because the package's own default is `false` (non-null),
+            // so the flat fallback never fired even when callers had
+            // explicitly set `audit_trail_enabled => true` in their
+            // legacy config.
+            $structured = (bool) $app['config']->get('pii-redactor.audit_trail.enabled', false);
+            $flat = (bool) $app['config']->get('pii-redactor.audit_trail_enabled', false);
+            $auditTrailEnabled = $structured || $flat;
             $nerDriver = $app->make(NerDriver::class);
 
             $engine = new RedactorEngine(
