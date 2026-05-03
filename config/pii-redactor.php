@@ -2,13 +2,9 @@
 
 declare(strict_types=1);
 
-use Padosoft\PiiRedactor\Detectors\AddressItalianDetector;
-use Padosoft\PiiRedactor\Detectors\CodiceFiscaleDetector;
 use Padosoft\PiiRedactor\Detectors\CreditCardDetector;
 use Padosoft\PiiRedactor\Detectors\EmailDetector;
 use Padosoft\PiiRedactor\Detectors\IbanDetector;
-use Padosoft\PiiRedactor\Detectors\PartitaIvaDetector;
-use Padosoft\PiiRedactor\Detectors\PhoneItalianDetector;
 use Padosoft\PiiRedactor\Ner\HuggingFaceNerDriver;
 use Padosoft\PiiRedactor\Ner\SpaCyNerDriver;
 use Padosoft\PiiRedactor\Ner\StubNerDriver;
@@ -95,23 +91,30 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Enabled detectors
+    | Enabled detectors — multi-country / international only
     |--------------------------------------------------------------------------
     |
     | Whitelist of detector class names that the ServiceProvider should
-    | register. Unknown classes are skipped silently; remove an entry to
-    | disable a detector. Custom detectors registered via Pii::extend()
-    | bypass this list.
+    | register at boot. These are international / multi-jurisdiction detectors
+    | that are NOT tied to any specific country:
+    |
+    |  - IbanDetector   — ISO 13616 IBAN (39 countries)
+    |  - EmailDetector  — RFC-5321 email addresses
+    |  - CreditCardDetector — Luhn-validated card numbers (Visa / MC / Amex /
+    |    Discover / UnionPay)
+    |
+    | Country-specific detectors (e.g. Codice Fiscale, Partita IVA, Italian
+    | phone/address) are managed by the `packs` array below. To disable a
+    | country's detection, remove its pack from that list rather than touching
+    | this array.
+    |
+    | Custom detectors registered via Pii::extend() bypass this list entirely.
     |
     */
     'detectors' => [
-        CodiceFiscaleDetector::class,
-        PartitaIvaDetector::class,
         IbanDetector::class,
         EmailDetector::class,
-        PhoneItalianDetector::class,
         CreditCardDetector::class,
-        AddressItalianDetector::class,
     ],
 
     /*

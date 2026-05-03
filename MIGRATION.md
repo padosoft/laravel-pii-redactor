@@ -61,11 +61,18 @@ community-contributed country packs:
 These are internals — your host application does not need to know,
 but if you read source you'll notice:
 
-- The four Italian detectors are now registered via `ItalyPack` by
-  default (was: flat `pii-redactor.detectors` list expanded
-  inline by the SP). The flat list still works; the two surfaces
-  coexist. If both surfaces register the same detector, the engine
-  deduplicates by detector `name()`.
+- The four Italian detectors are now registered via `ItalyPack` (via
+  `config('pii-redactor.packs')`). In v1.0 the package's **default**
+  `config('pii-redactor.detectors')` flat list no longer includes the
+  four Italian-specific classes — only the three multi-country detectors
+  (`IbanDetector`, `EmailDetector`, `CreditCardDetector`) remain in it.
+  Hosts that have **republished** the v0.x config will still have the
+  four Italian classes listed in their published file; those
+  registrations are still honoured and remain harmless (last-write-wins
+  means ItalyPack's instances win on the named registry). However, to
+  make the new `packs` on/off toggle effective, those hosts should
+  remove the four Italian detector entries from their published
+  `pii-redactor.detectors` list as described in the optional step below.
 - `config('pii-redactor.packs')` is the new **preferred** config
   key for jurisdictional bundles. The legacy
   `config('pii-redactor.detectors')` flat list remains valid for
@@ -82,11 +89,21 @@ but if you read source you'll notice:
 ## What hosts MAY want to do (no urgency — purely additive)
 
 If you want to align your host config with the new pack-level
-surface (recommended, but not required), append the following to
-your `config/pii-redactor.php`:
+surface (recommended, but not required), make the following changes
+to your `config/pii-redactor.php`:
 
 ```diff
   // config/pii-redactor.php
+
+  'detectors' => [
+-     \Padosoft\PiiRedactor\Detectors\CodiceFiscaleDetector::class,
+-     \Padosoft\PiiRedactor\Detectors\PartitaIvaDetector::class,
+      \Padosoft\PiiRedactor\Detectors\IbanDetector::class,
+      \Padosoft\PiiRedactor\Detectors\EmailDetector::class,
+-     \Padosoft\PiiRedactor\Detectors\PhoneItalianDetector::class,
+      \Padosoft\PiiRedactor\Detectors\CreditCardDetector::class,
+-     \Padosoft\PiiRedactor\Detectors\AddressItalianDetector::class,
+  ],
 
 + // v1.0+: prefer pack-level config for jurisdictional bundles.
 + // The flat 'detectors' list still works; this is the new
@@ -106,6 +123,13 @@ your `config/pii-redactor.php`:
 +     ],
   ],
 ```
+
+> **Why remove Italian detectors from the flat list?**
+> Keeping them in the `detectors` list AND in `ItalyPack` means
+> removing `ItalyPack` from `packs` doesn't actually disable Italian
+> PII detection — the flat-list registration still fires. Once you
+> move them into the pack-only path, the `packs` toggle is the
+> authoritative control.
 
 Future community packs (`GermanyPack`, `SpainPack`, `FrancePack`,
 …) will publish guidance on appending themselves to the `packs`
