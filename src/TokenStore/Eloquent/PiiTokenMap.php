@@ -36,4 +36,17 @@ class PiiTokenMap extends Model
     protected $fillable = ['token', 'original', 'detector'];
 
     public $incrementing = true;
+
+    /**
+     * Cast `created_at` to Carbon even though Eloquent's automatic
+     * timestamp management is disabled ($timestamps = false). The column
+     * is set by the DB default (useCurrent()) rather than by Eloquent,
+     * but we still want `$model->created_at` to return a Carbon instance
+     * consistent with the @property annotation above.
+     *
+     * @var array<string, string>
+     */
+    protected $casts = [
+        'created_at' => 'datetime',
+    ];
 }

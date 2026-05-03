@@ -73,8 +73,9 @@ final class DatabaseTokenStore implements TokenStore
 
         // chunkById streams the table without holding every row in
         // memory at once — see CLAUDE.md R3 (memory-safe bulk ops).
+        // No explicit orderBy needed: chunkById() applies its own
+        // ordering on the primary key via forPageAfterId() internally.
         $this->newQuery()
-            ->orderBy('id')
             ->chunkById(500, function ($rows) use (&$out): void {
                 foreach ($rows as $row) {
                     $out[(string) $row->token] = (string) $row->original;
