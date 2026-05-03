@@ -271,21 +271,81 @@ That's it. The ServiceProvider boots, the `DetectorPackRegistry` walks the confi
 
 ## Comparison vs alternatives
 
-|                                       | laravel-pii-redactor | Microsoft Presidio | Spatie data-redaction approaches | AWS Comprehend PII | Google Cloud DLP |
-|---------------------------------------|----------------------|--------------------|----------------------------------|--------------------|------------------|
-| Native Laravel facade + ServiceProvider | YES                  | NO (Python)        | YES (different scope)            | NO (AWS SDK)       | NO (GCP SDK)     |
-| Italian `codice fiscale` checksum     | YES (CIN table)      | partial regex      | NO                               | NO                 | NO               |
-| Italian `partita IVA` checksum        | YES (Luhn-IT)        | NO                 | NO                               | NO                 | NO               |
-| ISO 13616 IBAN mod-97 (every country) | YES                  | structural only    | NO                               | partial            | partial          |
-| Reversible pseudonymisation (`detokenise`) | YES (deterministic)  | NO                 | partial (custom)                 | NO                 | partial (DLP de-id) |
-| Operates entirely offline             | YES                  | YES (Python)       | YES                              | NO (AWS API)       | NO (GCP API)     |
-| Per-detector hash namespacing         | YES                  | NO                 | NO                               | NO                 | partial          |
-| GDPR data-minimisation friendly       | YES (no transit)     | YES                | YES                              | NO (US transit)    | NO (US transit)  |
-| Per-tenant custom detectors           | `Pii::extend()`      | yaml + Python      | manual                           | custom entities    | custom infoTypes |
-| Cost per 1M characters                | EUR 0                | self-hosted        | EUR 0                            | ~ EUR 1            | ~ EUR 1.50       |
-| `composer require` install            | YES                  | NO                 | YES (different package)          | NO                 | NO               |
+✅ = supported out of the box · 🟡 = partial / requires custom code or paid tier · ❌ = not supported
 
-`laravel-pii-redactor` is **not** a Presidio replacement for fuzzy entity recognition — Presidio's NER layer (PERSON, ORG, LOC) is genuinely more capable, and you can plug it (or HuggingFace, or spaCy) into this package via the `NerDriver` interface (v0.3+). The deterministic regex + checksum + per-country pack core stays the strongest layer where the existing EU-aware options are weakest.
+### Platform & deployment
+
+|                                            | laravel-pii-redactor                | Microsoft Presidio       | Spatie data-redaction    | AWS Comprehend PII       | Google Cloud DLP         |
+|--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| Native Laravel facade + ServiceProvider    | ✅ YES                              | ❌ NO (Python)           | ✅ YES (different scope) | ❌ NO (AWS SDK)          | ❌ NO (GCP SDK)          |
+| `composer require` install                 | ✅ YES                              | ❌ NO                    | ✅ YES (different scope) | ❌ NO                    | ❌ NO                    |
+| Operates entirely offline (default path)   | ✅ YES                              | ✅ YES (self-hosted)     | ✅ YES                   | ❌ NO (AWS API)          | ❌ NO (GCP API)          |
+| GDPR data-minimisation friendly            | ✅ YES (no transit)                 | ✅ YES                   | ✅ YES                   | ❌ NO (US transit)       | ❌ NO (US transit)       |
+| Cost per 1M characters                     | ✅ EUR 0                            | 🟡 self-hosted compute   | ✅ EUR 0                 | ❌ ~ EUR 1               | ❌ ~ EUR 1.50            |
+
+### EU country detector coverage (deterministic, checksum-validated)
+
+|                                            | laravel-pii-redactor                | Microsoft Presidio       | Spatie data-redaction    | AWS Comprehend PII       | Google Cloud DLP         |
+|--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| 🇮🇹 Codice fiscale (CIN checksum)           | ✅ YES (`ItalyPack`)                | 🟡 regex shape only      | ❌ NO                    | ❌ NO                    | 🟡 regex shape only      |
+| 🇮🇹 Partita IVA (Luhn-IT)                   | ✅ YES (`ItalyPack`)                | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| 🇩🇪 Steuer-ID (mod-11 ISO 7064 + §139b AO)  | ✅ YES (`GermanyPack` v1.1)         | ❌ NO                    | ❌ NO                    | ❌ NO                    | 🟡 regex only (no checksum) |
+| 🇩🇪 USt-IdNr (BMF Method 30 mod-11)         | ✅ YES (`GermanyPack` v1.1)         | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| 🇪🇸 DNI / NIE (23-letter checksum)          | ✅ YES (`SpainPack` v1.1)           | 🟡 regex shape only      | ❌ NO                    | ❌ NO                    | 🟡 regex shape only      |
+| 🇪🇸 CIF (AEAT dual digit/letter control)    | ✅ YES (`SpainPack` v1.1)           | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| 🇫🇷 NIR / SSN (mod-97)                      | 🟡 v1.2+ candidate (community PR)   | 🟡 regex shape only      | ❌ NO                    | ❌ NO                    | 🟡 regex shape only      |
+| 🇳🇱 BSN (eleven-test mod-11)                | 🟡 v1.2+ candidate (community PR)   | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| 🇵🇹 NIF (mod-11)                            | 🟡 v1.2+ candidate (community PR)   | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| ISO 13616 IBAN mod-97 (every country)      | ✅ YES                              | 🟡 structural only       | ❌ NO                    | 🟡 partial (US-leaning)  | 🟡 partial (US-leaning)  |
+| Per-country phone number heuristics        | ✅ YES (IT/DE/ES + community packs) | 🟡 limited               | ❌ NO                    | 🟡 limited               | 🟡 limited               |
+| Per-country street-address heuristics      | ✅ YES (IT/DE/ES)                   | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+
+### Replacement strategies (mask / hash / tokenise / drop)
+
+|                                            | laravel-pii-redactor                | Microsoft Presidio       | Spatie data-redaction    | AWS Comprehend PII       | Google Cloud DLP         |
+|--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| Mask strategy (`[REDACTED]`)               | ✅ YES                              | ✅ YES                   | ✅ YES                   | ✅ YES                   | ✅ YES                   |
+| Deterministic salted hash strategy         | ✅ YES                              | 🟡 custom anonymizer     | 🟡 custom                | ❌ NO                    | 🟡 cryptoHashConfig      |
+| Per-detector hash namespacing              | ✅ YES                              | ❌ NO                    | ❌ NO                    | ❌ NO                    | 🟡 partial               |
+| Reversible pseudonymisation (`detokenise`) | ✅ YES (`TokeniseStrategy`)         | ❌ NO                    | 🟡 custom                | ❌ NO                    | 🟡 DLP de-identify       |
+| Drop strategy (empty replacement)          | ✅ YES                              | ✅ YES                   | ✅ YES                   | ❌ NO                    | ✅ YES                   |
+| Strategy override per-call (`Pii::redact($t, new HashStrategy(...))`) | ✅ YES | 🟡 anonymizer chains    | 🟡 manual                | ❌ NO                    | 🟡 deidentifyTemplate    |
+
+### Persistence & infrastructure
+
+|                                            | laravel-pii-redactor                | Microsoft Presidio       | Spatie data-redaction    | AWS Comprehend PII       | Google Cloud DLP         |
+|--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| In-memory token store (process-local)      | ✅ YES (`InMemoryTokenStore`)       | ❌ NO (stateless)        | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Database token store (Eloquent + migration) | ✅ YES (`DatabaseTokenStore` v0.2)  | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Cache token store (Redis / Memcached / array) | ✅ YES (`CacheTokenStore` v0.3)   | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Cross-process / cross-deploy detokenisation | ✅ YES (database / cache drivers)   | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Audit-trail event (counts only, GDPR-safe) | ✅ YES (`PiiRedactionPerformed` v0.2) | ❌ NO                  | ❌ NO                    | 🟡 CloudWatch (paid)     | 🟡 audit logs (paid)     |
+
+### Extensibility & community
+
+|                                            | laravel-pii-redactor                | Microsoft Presidio       | Spatie data-redaction    | AWS Comprehend PII       | Google Cloud DLP         |
+|--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| Per-tenant custom detectors                | ✅ `Pii::extend()` (one-liner)      | 🟡 yaml + Python class   | 🟡 manual                | 🟡 custom entities       | 🟡 custom infoTypes      |
+| YAML-loaded custom rule packs              | ✅ YES (`YamlCustomRuleLoader` v0.3) | 🟡 yaml + Python config | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Pluggable country pack architecture        | ✅ YES (`PackContract` v1.0)        | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Community-contributed country packs        | ✅ YES (DE + ES shipped v1.1; FR/NL/PT welcome) | ❌ NO        | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| HuggingFace NER driver (opt-in, fail-open) | ✅ YES (`HuggingFaceNerDriver` v0.3) | ✅ YES (HF integration) | ❌ NO                    | 🟡 separate service      | ❌ NO                    |
+| spaCy NER driver (opt-in, generic HTTP)    | ✅ YES (`SpaCyNerDriver` v0.3)      | ✅ YES (built-in)        | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| AI vibe-coding pack for contributors       | ✅ YES (`.claude/` skills + agents) | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Apache-2.0 license                         | ✅ YES                              | ✅ YES (MIT)             | ✅ YES (MIT)             | 🟡 proprietary           | 🟡 proprietary           |
+
+### Quality gates & guarantees
+
+|                                            | laravel-pii-redactor                | Microsoft Presidio       | Spatie data-redaction    | AWS Comprehend PII       | Google Cloud DLP         |
+|--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
+| Stable surface lock (semver v1.x)          | ✅ YES (v1.0+)                      | 🟡 0.x line              | ✅ YES                   | 🟡 service versioning    | 🟡 service versioning    |
+| PHP 8.3 / 8.4 / 8.5 × Laravel 12 / 13 matrix CI | ✅ YES                          | ❌ N/A                   | ✅ YES                   | ❌ N/A                   | ❌ N/A                   |
+| 600+ unit tests + robustness suite         | ✅ YES                              | ✅ YES                   | 🟡 smaller surface       | ❌ N/A (managed service) | ❌ N/A (managed service) |
+| Cross-pack architecture isolation enforced | ✅ YES (per-pack architecture test) | ❌ NO                    | ❌ NO                    | ❌ NO                    | ❌ NO                    |
+| Performance benchmarks (1MB doc < 2s)      | ✅ YES (`PerfBenchTest`)            | 🟡 unpublished           | 🟡 unpublished           | 🟡 SLA only              | 🟡 SLA only              |
+| Standalone-agnostic invariant (no host coupling) | ✅ YES (R37 architecture test) | ✅ YES                   | ✅ YES                   | ❌ N/A                   | ❌ N/A                   |
+
+`laravel-pii-redactor` is **not** a Presidio replacement for fuzzy named-entity recognition — Presidio's transformer-backed NER layer (PERSON, ORG, LOC) is genuinely more capable as a free-form classifier, and you can plug it (or any HuggingFace / spaCy model) into this package via the `NerDriver` interface (v0.3+). The deterministic regex + checksum + per-country pack core stays the strongest layer where the existing EU-aware options are weakest, and the persistent reverse-map storage + community-contributable pack architecture are unique to this package across the comparison set.
 
 ---
 
