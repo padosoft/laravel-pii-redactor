@@ -118,10 +118,11 @@ return [
     |
     | v0.1 published this as a flat boolean. v0.2 promotes it to the
     | structured `audit_trail.enabled` block below; the flat key is preserved
-    | as a fallback so existing hosts upgrade transparently. The SP reads
-    | `audit_trail.enabled` first and only consults this flat value when the
-    | structured key is null. New deployments should set the structured key
-    | only — leave this entry untouched until a future major drops it.
+    | for existing hosts upgrading without republishing the config. The SP
+    | ORs this value with `audit_trail.enabled` — setting EITHER key to true
+    | is sufficient to enable the audit trail. New deployments should use only
+    | the structured key; leave this entry untouched until a future major drops
+    | it.
     |
     */
     'audit_trail_enabled' => env('PII_REDACTOR_AUDIT_TRAIL', false),
@@ -132,9 +133,10 @@ return [
     |--------------------------------------------------------------------------
     |
     | When enabled, RedactorEngine fires a PiiRedactionPerformed event after
-    | every redact() call carrying ONLY counts (never raw PII). The flat v0.1
-    | `audit_trail_enabled` key above is preserved as a fallback so existing
-    | hosts upgrade transparently — the SP reads `audit_trail.enabled` first.
+    | any redact() call that produced at least one detection, carrying ONLY
+    | counts (never raw PII). The SP ORs this key with the v0.1 flat key above
+    | so EITHER being truthy enables the trail — existing hosts upgrading from
+    | v0.1 without republishing the config are honoured automatically.
     |
     */
     'audit_trail' => [
