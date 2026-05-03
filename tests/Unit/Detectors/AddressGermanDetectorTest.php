@@ -21,7 +21,7 @@ final class AddressGermanDetectorTest extends TestCase
         $text = 'Wohne Berliner Straße 12 seit Jahren.';
         $hits = $detector->detect($text);
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Berliner Straße 12', $hits[0]->value);
         $this->assertSame(strpos($text, 'Berliner Straße 12'), $hits[0]->offset);
     }
@@ -31,7 +31,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Treffpunkt Hauptstraße 5 morgen früh.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Hauptstraße 5', $hits[0]->value);
     }
 
@@ -40,7 +40,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Lager Hauptstr. 5 abholen.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Hauptstr. 5', $hits[0]->value);
     }
 
@@ -49,7 +49,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Büro Friedrich-Ebert-Str. 12 erreichen.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Friedrich-Ebert-Str. 12', $hits[0]->value);
     }
 
@@ -58,7 +58,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Eingang Friedrich-Ebert-Allee 32 öffnet.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Friedrich-Ebert-Allee 32', $hits[0]->value);
     }
 
@@ -67,7 +67,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Stand Marktplatz 1 freuen.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Marktplatz 1', $hits[0]->value);
     }
 
@@ -76,7 +76,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Pension Goetheweg 7 buchen.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Goetheweg 7', $hits[0]->value);
     }
 
@@ -85,7 +85,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Restaurant Sandgasse 4 reservieren.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Sandgasse 4', $hits[0]->value);
     }
 
@@ -94,7 +94,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Adresse Stadtring 22 zuschicken.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Stadtring 22', $hits[0]->value);
     }
 
@@ -103,7 +103,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Treffen Kurfürstendamm 195 vereinbaren.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Kurfürstendamm 195', $hits[0]->value);
     }
 
@@ -112,7 +112,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Spaziergang Mainufer 10 nachmittags.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Mainufer 10', $hits[0]->value);
     }
 
@@ -121,7 +121,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Sitz Lindenhof 3 ansehen.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Lindenhof 3', $hits[0]->value);
     }
 
@@ -130,7 +130,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Standort Am Ring 7 anlaufen.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Am Ring 7', $hits[0]->value);
     }
 
@@ -139,7 +139,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Café An der Alster 12 öffnet.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('An der Alster 12', $hits[0]->value);
     }
 
@@ -148,7 +148,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Treffpunkt Unter den Linden 5 prüfen.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Unter den Linden 5', $hits[0]->value);
     }
 
@@ -157,7 +157,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Adresse Hauptstr. 5a hier.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Hauptstr. 5a', $hits[0]->value);
     }
 
@@ -166,7 +166,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Bauplatz Hauptstr. 5-9 versteigern.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Hauptstr. 5-9', $hits[0]->value);
     }
 
@@ -175,7 +175,7 @@ final class AddressGermanDetectorTest extends TestCase
         $detector = new AddressGermanDetector;
         $hits = $detector->detect('Versand an Berliner Straße 12, 10115 Berlin liefern.');
 
-        $this->assertGreaterThanOrEqual(1, count($hits));
+        $this->assertCount(1, $hits, 'expected exactly one address detection — extra hits indicate detector regression');
         $this->assertSame('Berliner Straße 12, 10115 Berlin', $hits[0]->value);
     }
 

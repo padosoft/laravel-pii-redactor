@@ -29,14 +29,24 @@ namespace Padosoft\PiiRedactor\Detectors;
  *     9 (equivalent to summing its digits). Sum all four results.
  *  3. Total = even_sum + odd_sum. Take its last digit D.
  *  4. Control digit C = (10 − D) mod 10.
- *  5. If the leading letter is in {K, P, Q, S, N, W} the control MUST
- *     be the letter at index C in 'JABCDEFGHI' (J = 0, A = 1, ..., I = 9).
- *  6. Otherwise the control MUST be the digit C itself.
+ *  5. The control character validity depends on the leading letter class:
+ *     - **Letter-mandatory** prefixes {K, P, Q, S}: control MUST be the
+ *       letter at index C in 'JABCDEFGHI' (J = 0, A = 1, ..., I = 9).
+ *       Associations, public-law bodies, religious entities — the
+ *       letter disambiguates from personal NIFs.
+ *     - **Digit-mandatory** prefixes {A, B, E, H}: control MUST be the
+ *       digit C itself. Standard corporations (Sociedad anónima,
+ *       limitada, comunidades de bienes, comunidades de propietarios).
+ *     - **Dual-control** prefixes {C, D, F, G, J, L, M, N, R, U, V, W}:
+ *       control MAY be either the digit C OR the letter at index C in
+ *       'JABCDEFGHI'. Cooperatives, religious associations, foreign
+ *       entities, joint-property entities — both forms appear in
+ *       practice and the AEAT validator accepts either.
  *
- * Leading letters K, P, Q, S, N, W use a letter control because the
- * underlying entity types (associations, public-law bodies, foreign
- * agencies) historically required a letter to disambiguate from
- * personal NIFs.
+ * Per Codex review on PR #7: the previous classification merged dual-
+ * control prefixes (N, W) into the letter-mandatory list, rejecting
+ * digit-control variants that the AEAT spec validates as correct.
+ * The dual-control group now accepts whichever form the issuer chose.
  */
 final class CifDetector implements Detector
 {
@@ -44,8 +54,24 @@ final class CifDetector implements Detector
 
     /**
      * Letters whose control character MUST be a letter from JABCDEFGHI.
+     * Associations / public-law bodies / religious entities — the letter
+     * is mandatory to disambiguate from personal NIFs.
      */
-    private const LETTER_CONTROL_LEADERS = ['K', 'P', 'Q', 'S', 'N', 'W'];
+    private const LETTER_CONTROL_LEADERS = ['K', 'P', 'Q', 'S'];
+
+    /**
+     * Letters whose control character MUST be the computed digit. Standard
+     * corporations (Sociedad anónima, limitada, comunidades, partnerships).
+     */
+    private const DIGIT_CONTROL_LEADERS = ['A', 'B', 'E', 'H'];
+
+    /**
+     * Letters where the control MAY be EITHER the digit OR the letter at
+     * index C in 'JABCDEFGHI'. Cooperatives (F), religious associations
+     * (R), foreign entities (N), joint-property entities, etc. — both
+     * forms appear in practice and the AEAT validator accepts either.
+     */
+    private const DUAL_CONTROL_LEADERS = ['C', 'D', 'F', 'G', 'J', 'L', 'M', 'N', 'R', 'U', 'V', 'W'];
 
     private const LETTER_CONTROL_TABLE = 'JABCDEFGHI';
 
@@ -109,17 +135,30 @@ final class CifDetector implements Detector
         $lastDigit = $total % 10;
         $expectedC = (10 - $lastDigit) % 10;
 
+        $expectedLetter = self::LETTER_CONTROL_TABLE[$expectedC];
+
         if (in_array($leading, self::LETTER_CONTROL_LEADERS, true)) {
-            $expectedControl = self::LETTER_CONTROL_TABLE[$expectedC];
-
-            return $control === $expectedControl;
+            // Letter-only: control MUST be the letter at index C.
+            return $control === $expectedLetter;
         }
 
-        // Digit-control group: the control must be the digit itself.
-        if (! ctype_digit($control)) {
-            return false;
+        if (in_array($leading, self::DIGIT_CONTROL_LEADERS, true)) {
+            // Digit-only: control MUST be the digit C.
+            return ctype_digit($control) && ((int) $control) === $expectedC;
         }
 
-        return ((int) $control) === $expectedC;
+        if (in_array($leading, self::DUAL_CONTROL_LEADERS, true)) {
+            // Dual-control: accept EITHER the digit C OR the letter at index C.
+            // The AEAT validator accepts both — practical issuance uses both.
+            if (ctype_digit($control)) {
+                return ((int) $control) === $expectedC;
+            }
+
+            return $control === $expectedLetter;
+        }
+
+        // Defensive fallback: unknown leading letter (regex should have
+        // already rejected this — kept to make the intent explicit).
+        return false;
     }
 }

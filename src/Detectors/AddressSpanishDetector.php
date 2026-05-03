@@ -42,9 +42,15 @@ final class AddressSpanishDetector implements Detector
 {
     private const PATTERN =
         '/\b'.
-        // 1) Street-type prefix (case-insensitive). Longer / abbreviated
-        //    forms are listed BEFORE their shorter cousins so the regex
-        //    engine prefers the abbreviation when both could match.
+        // 1) Street-type prefix (case-insensitive). PCRE alternation
+        //    matches the FIRST alternative that succeeds at a position
+        //    (left-to-right preference, NOT longest-match), so longer /
+        //    more-specific variants (`Avda.`, `Pza.`, `P.º`) MUST be
+        //    listed BEFORE their shorter cousins (`Avenida`, `Plaza`,
+        //    `Paseo`, `Calle`) — otherwise the engine would match the
+        //    short prefix and leave the trailing literal as garbage,
+        //    producing a partial detection. Order in this list IS
+        //    semantic, not cosmetic.
         '(?i:'.
         'Avda\.|Avd\.|Avenida|'.
         'Pza\.|Plaza|'.

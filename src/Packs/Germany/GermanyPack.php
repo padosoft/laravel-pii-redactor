@@ -19,9 +19,15 @@ use Padosoft\PiiRedactor\Packs\PackContract;
  * - `ust_idnr`   — `DE` + 9-digit Umsatzsteuer-Identifikationsnummer
  *   with BMF Method 30 mod-11 checksum (§27a UStG).
  * - `phone_de`   — German mobile + landline phone numbers.
- * - `address_de` — heuristic German street addresses (Straße / Str. /
- *   Allee / Platz / Weg / Gasse / Ring / Damm / Ufer / Brücke / Hof
- *   plus prefix forms `Am`, `An der`, `Auf der`, `Im`, `In der`, `Zur`).
+ * - `address_de` — heuristic German street addresses. Compound
+ *   suffix forms: `-straße` / `-str.` / `-allee` / `-platz` / `-weg` /
+ *   `-gasse` / `-ring` / `-damm` / `-ufer` / `-brücke` / `-hof` /
+ *   `-chaussee` / `-stieg` / `-zeile` / `-pfad` / `-anger`. Prefix
+ *   particle forms: `Am`, `An der`, `An den`, `Am`, `Auf der`, `Auf dem`,
+ *   `Im`, `In der`, `In den`, `Hinter der`, `Hinter dem`, `Vor dem`,
+ *   `Zum`, `Zur`, `Bei der`, `Unter der`, `Unter den` (e.g.
+ *   `Unter den Linden`). See `AddressGermanDetector` source for the
+ *   authoritative list — the docblock here is a summary, not a spec.
  *
  * Multi-country detectors (Email, IBAN, CreditCard) are NOT included —
  * they live in the top-level `Padosoft\PiiRedactor\Detectors\` namespace.
