@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-pii-redactor.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-pii-redactor)
 
-> **Italian-first PII redaction for Laravel — deterministic regex + checksum-validated detectors for `codice fiscale`, `partita IVA`, `IBAN`, plus the EU staples (email, phone, credit card) and a pluggable strategy layer (mask / hash / tokenise / drop). Zero external services, zero LLM cost, GDPR + EU AI Act ready.**
+> **Italian-first PII redaction for Laravel — deterministic regex + checksum-validated detectors for `codice fiscale`, `partita IVA`, `IBAN`, plus the EU staples (email, phone, credit card, Italian street address) and a pluggable strategy layer (mask / hash / tokenise / drop) with persistent reverse-map storage and an opt-in NER scaffold. Zero external services, zero LLM cost, GDPR + EU AI Act ready.**
 
 `laravel-pii-redactor` is the seventh deliverable of the [Padosoft v4.0 cycle](https://github.com/lopadova/AskMyDocs) (W7). It is a community Apache-2.0 package, **standalone-agnostic** (zero references to AskMyDocs / sister packages), and ships with the Padosoft AI vibe-coding pack so you can extend it with Claude Code or GitHub Copilot in minutes — not days.
 
@@ -85,19 +85,23 @@ When two detectors emit overlapping byte ranges (e.g. an email-shaped string tha
 
 ## Features at a glance
 
-- **6 deterministic detectors out of the box**:
+- **7 deterministic detectors out of the box**:
   - `codice_fiscale` — 16-char Italian fiscal code with full CIN checksum (Decreto Ministeriale 23/12/1976).
   - `p_iva` — 11-digit Italian VAT with Luhn-style checksum + zero-payload sentinel rejection.
   - `iban` — ISO 13616 IBAN for every registered country (~75) + mod-97 verification.
   - `email` — pragmatic RFC-5321 shape match.
   - `phone_it` — Italian mobile + landline (with optional `+39` / `0039` prefix).
   - `credit_card` — 13–19 digit PAN with Luhn validation.
+  - `address_it` — Italian street address heuristic (Via / Viale / Piazza / Corso / Largo / Strada / Vicolo / Lungomare + compound forms `Via dei`, `Via della`, `Via d'…`); civic number + 5-digit CAP + city optional.
 - **4 pluggable redaction strategies**: `MaskStrategy`, `HashStrategy` (deterministic, salt-derived, namespaced per detector), `TokeniseStrategy` (reversible pseudonymisation with `detokenise()` + `dumpMap()` / `loadMap()` for cross-process recovery), `DropStrategy`.
+- **Persistent reverse-map storage (v0.2)** — `TokenStore` interface + `InMemoryTokenStore` (default, process-local) + `DatabaseTokenStore` (Eloquent-backed, shipped migration `pii_token_maps`). The same `[tok:...]` token detokenises across deploys / queue workers when the database driver is wired. Switch via `PII_REDACTOR_TOKEN_STORE=database` and run `php artisan vendor:publish --tag=pii-redactor-migrations && php artisan migrate`.
+- **Audit-trail event (v0.2)** — opt-in `PiiRedactionPerformed` Laravel event fired after a `redact()` call that **produced at least one detection**, when `PII_REDACTOR_AUDIT_TRAIL=true` (or the structured `audit_trail.enabled` key is set). No-op redactions (engine disabled, empty input, zero detections) skip the dispatch — the event signals "redaction occurred", not "request processed". Event carries **counts only** (detector → match count, total, strategy name) — NEVER raw PII or redacted output. GDPR-friendly by construction.
+- **NER scaffold (v0.2)** — `NerDriver` interface + `StubNerDriver` (no-op default). Real drivers (HuggingFace + spaCy) ship in v0.3 behind the same contract; opt-in via `PII_REDACTOR_NER_ENABLED=true` + `PII_REDACTOR_NER_DRIVER=<name>`. Driver detections merge into the same overlap-resolution pipeline as first-party detectors.
 - **Typed `DetectionReport`** — `total()`, `countsByDetector()`, `samplesByDetector(cap)`, `toArray()`. Stable JSON shape for downstream auditors.
 - **`Pii::extend()` registry** for custom detectors (`custom_codice_iscrizione_albo`, project-specific account ids, etc.).
 - **Artisan command** — `php artisan pii:scan path/to/file.txt --pretty` or `cat data | php artisan pii:scan --from=stdin` (samples masked by default; pass `--show-samples` for raw values during interactive forensics).
 - **Standalone-agnostic** — zero coupling to AskMyDocs / sister packages, enforced by an architecture test.
-- **PHP 8.3 / 8.4 / 8.5** × **Laravel 12 / 13** matrix. Pint + PHPStan level 6 + 30+ PHPUnit tests on every push.
+- **PHP 8.3 / 8.4 / 8.5** × **Laravel 12 / 13** matrix. Pint + PHPStan level 6 + 150+ PHPUnit tests on every push.
 - **Padosoft AI vibe-coding pack** (`.claude/`) — Claude Code skills (R36 review loop, R10–R37 rules) + agents (review pre-push) + commands (`/create-job`, `/domain-scaffold`).
 
 ---
@@ -260,7 +264,10 @@ Every key in `config/pii-redactor.php` is documented inline. Highlights:
 - `hash_hex_length` — between 4 and 64; default **16** (= 64-bit namespace, well above the birthday bound for any realistic corpus). Drop to 8 only if you accept that downstream joins on `[hash:...]` may collapse unrelated records once the dataset crosses ~30k uniques.
 - `token_hex_length` — between 8 and 64; default **16** for the `[tok:<detector>:<id>]` id portion. Same collision argument as `hash_hex_length`.
 - `detectors` — whitelist of detector classes the ServiceProvider auto-registers. Removing an entry disables the detector. Custom detectors registered via `Pii::extend()` bypass this list. Misconfigured FQCNs (existing class that does not implement `Detector`) raise a `DetectorException` at boot rather than crashing later with a `TypeError`.
-- `audit_trail_enabled` — reserved for v0.2 (count-only events emitted to host listeners).
+- `audit_trail_enabled` (v0.1 BC) and `audit_trail.enabled` (v0.2 structured) — when true, the engine fires `PiiRedactionPerformed` after every `redact()` call. Payload carries counts only (no raw PII or redacted output). The structured key is preferred; the flat key remains as a fallback so v0.1 hosts upgrade transparently.
+- `ner.enabled` / `ner.driver` / `ner.drivers` — opt-in NER scaffold. v0.2 ships `stub` (no-op); v0.3 will register `huggingface` + `spacy` drivers.
+- `token_store.driver` — `memory` (default) | `database`. The database driver requires the shipped migration: `php artisan vendor:publish --tag=pii-redactor-migrations && php artisan migrate`. Switch with `PII_REDACTOR_TOKEN_STORE=database`.
+- `token_store.database.connection` / `token_store.database.table` — isolate the `pii_token_maps` table on a dedicated DB connection (recommended for hosts that already partition PII from operational data).
 
 ---
 
@@ -268,8 +275,8 @@ Every key in `config/pii-redactor.php` is documented inline. Highlights:
 
 ```
 src/
- ├── PiiRedactorServiceProvider.php        config publish + DI bindings + commands
- ├── RedactorEngine.php                    core orchestrator (detectors + strategy + overlap)
+ ├── PiiRedactorServiceProvider.php        config publish + DI bindings + commands + migrations (v0.2)
+ ├── RedactorEngine.php                    core orchestrator (detectors + strategy + overlap + NER + audit-trail)
  ├── Facades/Pii.php                       static-method surface for hosts
  ├── Console/PiiScanCommand.php            php artisan pii:scan
  ├── Detectors/
@@ -280,19 +287,35 @@ src/
  │    ├── IbanDetector.php
  │    ├── EmailDetector.php
  │    ├── PhoneItalianDetector.php
- │    └── CreditCardDetector.php
+ │    ├── CreditCardDetector.php
+ │    └── AddressItalianDetector.php       v0.2 — Italian street-address heuristic
  ├── Strategies/
  │    ├── RedactionStrategy.php            interface
  │    ├── MaskStrategy.php
  │    ├── HashStrategy.php
- │    ├── TokeniseStrategy.php             reversible — detokenise() / dump+load map
+ │    ├── TokeniseStrategy.php             reversible — accepts a TokenStore (v0.2)
  │    └── DropStrategy.php
+ ├── TokenStore/                           v0.2 — persistent reverse-map storage
+ │    ├── TokenStore.php                   interface (put/get/has/clear/dump/load)
+ │    ├── InMemoryTokenStore.php           default — process-local, zero I/O
+ │    ├── DatabaseTokenStore.php           Eloquent-backed (chunkById dump, chunked upsert load)
+ │    └── Eloquent/
+ │         └── PiiTokenMap.php             model for the pii_token_maps table
+ ├── Events/
+ │    └── PiiRedactionPerformed.php        v0.2 — Dispatchable, counts-only payload
+ ├── Ner/                                  v0.2 — pluggable named-entity recognition
+ │    ├── NerDriver.php                    interface (name, detect)
+ │    └── StubNerDriver.php                no-op default; HuggingFace + spaCy in v0.3
  ├── Reports/
  │    └── DetectionReport.php              total() / countsByDetector() / samplesByDetector() / toArray()
  └── Exceptions/
       ├── PiiRedactorException.php         non-final base
       ├── DetectorException.php
       └── StrategyException.php
+
+database/
+ └── migrations/
+      └── 2026_05_03_000001_create_pii_token_maps_table.php   v0.2 — DatabaseTokenStore schema
 ```
 
 The engine itself is stateless with respect to the input. Calls to `redact()` / `scan()` are pure functions of `(text, registered detectors)`. Overlap resolution is left-to-right, longer-match-wins on tie — see `RedactorEngineTest::test_overlapping_detections_are_resolved_left_to_right`.
@@ -326,10 +349,10 @@ The `Live` suite is **opt-in** and reserved for v0.2+ scenarios that require a r
 
 ## Roadmap
 
-- **v0.1.0 (W7, this PR)** — 6 deterministic detectors (`codice_fiscale`, `p_iva`, `iban`, `email`, `phone_it`, `credit_card`), 4 strategies, `Pii::extend()`, `pii:scan` command (masked samples by default), ~80 PHPUnit tests, standalone-agnostic invariant. **No address detector in v0.1** — the heuristic Italian street-address detector (`address_it`) is parked for v0.2.
-- **v0.2.0** — opt-in NER layer (PERSON / ORG / LOC) behind `PII_REDACTOR_NER_DRIVER`. `audit_trail_enabled` event emission. Persistent `TokenStore` (cache / DB / KMS) for cross-process detokenisation. Heuristic Italian street-address detector (`address_it`).
-- **v0.3.0** — Italian custom-rule YAML for tenant-specific identifiers. Provider-agnostic NER drivers (HuggingFace + spaCy).
-- **v1.0.0** — stable surface, semver guarantees, formal compatibility matrix vs Laravel + PHP LTS lines.
+- **v0.1.0 (W7, shipped 2026-04-30)** — 6 deterministic detectors (`codice_fiscale`, `p_iva`, `iban`, `email`, `phone_it`, `credit_card`), 4 strategies, `Pii::extend()`, `pii:scan` command (masked samples by default), 80+ PHPUnit tests, standalone-agnostic invariant.
+- **v0.2.0 (W4.1, this PR)** — `address_it` Italian street-address heuristic detector (7th first-party detector). `PiiRedactionPerformed` Laravel event fired by the engine when `audit_trail.enabled = true`; carries counts only (no raw PII). Persistent `TokenStore` interface + `InMemoryTokenStore` (default) + `DatabaseTokenStore` (Eloquent + `pii_token_maps` migration) so reversible tokens survive deploys / cross-worker boundaries. NER `NerDriver` scaffold (`StubNerDriver` ships; real drivers in v0.3) with `withNerDriver()` immutable setter on the engine. 150+ PHPUnit tests on the v0.2 surface.
+- **v0.3.0** — `HuggingFaceNerDriver` + `SpaCyNerDriver` (HTTP-based, opt-in via `PII_REDACTOR_NER_API_KEY`). Italian custom-rule YAML loader for tenant-specific identifiers. Cache-backed `TokenStore` driver. Live test suite (markTestSkipped guard on missing env per `feedback_package_live_testsuite_opt_in`).
+- **v1.0.0** — stable surface lock + semver guarantees, formal compatibility matrix (PHP 8.3/8.4/8.5 × Laravel 12/13 supported windows), case studies + troubleshooting FAQ + performance benchmarks section in README, migration guide v0.x → v1.0, hardened SECURITY.md disclosure timeline.
 
 ---
 

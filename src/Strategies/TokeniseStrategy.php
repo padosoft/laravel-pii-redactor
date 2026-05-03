@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Padosoft\PiiRedactor\Strategies;
 
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
+use Padosoft\PiiRedactor\TokenStore\DatabaseTokenStore;
+use Padosoft\PiiRedactor\TokenStore\InMemoryTokenStore;
+use Padosoft\PiiRedactor\TokenStore\TokenStore;
 
 /**
  * Reversible pseudonymisation strategy.
@@ -17,14 +20,17 @@ use Padosoft\PiiRedactor\Exceptions\StrategyException;
  * other values were tokenised first. That property is what makes the
  * tokens stable across process boundaries when the salt is shared.
  *
- * The strategy keeps the bidirectional mapping in process memory so
- * that detokenise() / detokeniseString() can reverse the redaction
- * without consulting an external store. In v0.1 the map is in-memory
- * only — a process restart discards it. v0.2 will introduce a
- * pluggable TokenStore (cache / DB / KMS-encrypted blob) so the map
- * survives deploys. Until then, callers that need to detokenise must
- * either hold onto the strategy instance or persist the result of
- * dumpMap() and restore it via loadMap().
+ * v0.1 kept the bidirectional mapping inside the strategy instance.
+ * v0.2 delegates persistence to a pluggable {@see TokenStore}: the
+ * default {@see InMemoryTokenStore} reproduces the v0.1 behaviour
+ * (process-local map), while {@see DatabaseTokenStore}
+ * persists the map into the `pii_token_maps` table so the reverse map
+ * survives deploys and horizontal scale-out.
+ *
+ * Public surface — `apply()`, `detokenise()`, `detokeniseString()`,
+ * `dumpMap()`, `loadMap()` — is identical to v0.1 byte-for-byte. The
+ * only addition is the optional third constructor argument and the
+ * `store()` getter for tests / operator-driven rotations.
  *
  * Token ID width is configurable through the constructor (default 16
  * hex chars = 64 bits of namespace) so the chance of an accidental
@@ -34,19 +40,24 @@ use Padosoft\PiiRedactor\Exceptions\StrategyException;
  */
 final class TokeniseStrategy implements RedactionStrategy
 {
-    /**
-     * @var array<string, string> token => original
-     */
-    private array $tokenToOriginal = [];
+    private readonly TokenStore $store;
 
     /**
-     * @var array<string, string> "<detector>:<original>" => token
+     * Per-instance cache of tokens already minted in this process. Lets
+     * `apply()` short-circuit without round-tripping the underlying store
+     * on repeated occurrences of the same `(detector, original)` pair —
+     * preserves v0.1's in-memory reverse-index performance regardless of
+     * which {@see TokenStore} driver is wired (memory / database / future
+     * cache).
+     *
+     * @var array<string, true>
      */
-    private array $reverseIndex = [];
+    private array $mintedThisProcess = [];
 
     public function __construct(
         private readonly string $salt,
         private readonly int $idHexLength = 16,
+        ?TokenStore $store = null,
     ) {
         if ($salt === '') {
             throw new StrategyException(
@@ -58,6 +69,8 @@ final class TokeniseStrategy implements RedactionStrategy
                 'TokeniseStrategy idHexLength must be between 8 and 64 (default 16 = 64-bit namespace).',
             );
         }
+
+        $this->store = $store ?? new InMemoryTokenStore;
     }
 
     public function name(): string
@@ -67,64 +80,113 @@ final class TokeniseStrategy implements RedactionStrategy
 
     public function apply(string $original, string $detectorName): string
     {
-        $key = $detectorName.':'.$original;
-        if (isset($this->reverseIndex[$key])) {
-            return $this->reverseIndex[$key];
-        }
-
         // Pure function of (salt, detector, original): same value always
         // hashes to the same id regardless of encounter order or prior
         // calls, so tokens are stable across process boundaries.
-        $idHex = substr(hash('sha256', $this->salt.':'.$key), 0, $this->idHexLength);
+        $idHex = substr(hash('sha256', $this->salt.':'.$detectorName.':'.$original), 0, $this->idHexLength);
         $token = '[tok:'.$detectorName.':'.$idHex.']';
 
-        $this->tokenToOriginal[$token] = $original;
-        $this->reverseIndex[$key] = $token;
+        // Fast path: this process already minted this exact token, so
+        // skip the store write entirely. Critical for hot redaction loops
+        // backed by DatabaseTokenStore — without this short-circuit every
+        // repeated occurrence would issue a redundant `updateOrCreate`.
+        if (isset($this->mintedThisProcess[$token])) {
+            return $token;
+        }
+
+        $this->store->put($token, $original);
+        $this->mintedThisProcess[$token] = true;
 
         return $token;
     }
 
     public function detokenise(string $token): ?string
     {
-        return $this->tokenToOriginal[$token] ?? null;
+        return $this->store->get($token);
     }
 
     public function detokeniseString(string $text): string
     {
-        if ($this->tokenToOriginal === []) {
+        if ($text === '') {
             return $text;
         }
 
-        return strtr($text, $this->tokenToOriginal);
+        // Scan the input for `[tok:<detector>:<hex>]` literals and only
+        // fetch THOSE tokens from the store. Critical for the database
+        // driver — loading every persisted token to detokenise a single
+        // payload would scale latency + memory with the global table
+        // size instead of the input size.
+        if (preg_match_all('/\[tok:[A-Za-z0-9_]+:[0-9a-f]+\]/', $text, $matches) === false) {
+            return $text;
+        }
+
+        $tokens = array_unique($matches[0]);
+        if ($tokens === []) {
+            return $text;
+        }
+
+        $map = [];
+        foreach ($tokens as $token) {
+            $original = $this->store->get($token);
+            if ($original !== null) {
+                $map[$token] = $original;
+            }
+        }
+
+        if ($map === []) {
+            return $text;
+        }
+
+        return strtr($text, $map);
     }
 
     /**
+     * Materialise the full token → original map. Backed by
+     * {@see TokenStore::dump()}; for the DatabaseTokenStore this loads
+     * every persisted row and is intended for snapshot / backup
+     * workflows. Use {@see detokeniseString()} for runtime detokenisation
+     * — it scans the input and fetches only the referenced tokens.
+     *
      * @return array<string, string>
      */
     public function dumpMap(): array
     {
-        return $this->tokenToOriginal;
+        return $this->store->dump();
     }
 
     /**
-     * Restore a previously-dumped map. Used to recover state across
-     * process boundaries before v0.2's persistent TokenStore lands.
+     * Restore a previously-dumped map, replacing any existing entries.
      *
-     * The reverse index is fully reconstructed by parsing the token
-     * format `[tok:<detector>:<hex>]` so subsequent apply() calls reuse
-     * the loaded tokens instead of minting new ones.
+     * Both {@see InMemoryTokenStore::load()} and
+     * {@see DatabaseTokenStore::load()} drop the prior contents before
+     * inserting the new map, so callers see the post-load state to be
+     * exactly the supplied entries.
+     *
+     * Reverse-index reconstruction is the store's responsibility — the
+     * token format `[tok:<detector>:<hex>]` is deterministic from
+     * `(salt, detector, original)` so {@see apply()} computes it
+     * directly without consulting any cached lookup. The store only has
+     * to remember `token → original` for detokenisation.
+     *
+     * After loadMap(), the per-instance `mintedThisProcess` cache is
+     * cleared so the freshly-loaded tokens get the same lazy verify-or-
+     * write treatment as new mappings.
      *
      * @param  array<string, string>  $map
      */
     public function loadMap(array $map): void
     {
-        $this->tokenToOriginal = $map;
-        $this->reverseIndex = [];
+        $this->store->load($map);
+        $this->mintedThisProcess = [];
+    }
 
-        foreach ($map as $token => $original) {
-            if (preg_match('/^\[tok:([^:]+):[0-9a-f]+\]$/', $token, $m) === 1) {
-                $this->reverseIndex[$m[1].':'.$original] = $token;
-            }
-        }
+    /**
+     * Direct access to the underlying store. Provided for tests and
+     * operator scripts (rotation, dump, rehydrate) — not used in the
+     * hot redaction path.
+     */
+    public function store(): TokenStore
+    {
+        return $this->store;
     }
 }
