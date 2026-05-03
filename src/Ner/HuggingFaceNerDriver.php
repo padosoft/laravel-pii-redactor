@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Ner;
 
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Padosoft\PiiRedactor\Detectors\Detection;
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
@@ -98,9 +97,10 @@ final class HuggingFaceNerDriver implements NerDriver
                     'inputs' => $text,
                     'options' => ['wait_for_model' => true],
                 ]);
-        } catch (ConnectionException) {
-            // Fail open: a network-level failure (timeout, DNS, connection
-            // refused) MUST NOT block redaction of the deterministic detectors.
+        } catch (\Throwable) {
+            // Fail open: ANY transport-level failure (ConnectionException,
+            // RequestException, timeout, DNS, connection reset) MUST NOT block
+            // redaction of the deterministic detectors.
             return [];
         }
 

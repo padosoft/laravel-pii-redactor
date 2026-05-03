@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Ner;
 
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Padosoft\PiiRedactor\Detectors\Detection;
@@ -105,9 +104,10 @@ final class SpaCyNerDriver implements NerDriver
 
         try {
             $response = $request->post($this->serverUrl, ['text' => $text]);
-        } catch (ConnectionException) {
-            // Fail open: a network-level failure (timeout, DNS, connection
-            // refused) MUST NOT block redaction of the deterministic detectors.
+        } catch (\Throwable) {
+            // Fail open: ANY transport-level failure (ConnectionException,
+            // RequestException, timeout, DNS, connection reset) MUST NOT block
+            // redaction of the deterministic detectors.
             return [];
         }
 
@@ -149,6 +149,13 @@ final class SpaCyNerDriver implements NerDriver
      * Translate a single spaCy entity row into a Detection or null when the
      * row is malformed or carries an unmapped label.
      *
+     * spaCy (Python) returns Unicode character offsets (`start_char` /
+     * `end_char`). PHP's `substr_replace()` / `substr()` are byte-based.
+     * We use `mb_substr()` to extract the matched text and derive byte
+     * offsets so `Detection.offset` and `Detection.length` are consistent
+     * with the byte-based engine — critical for UTF-8 Italian text that
+     * contains diacritics (Nicolò, Caffè, etc.).
+     *
      * @param  mixed  $entity
      */
     private function mapEntity($entity, string $text): ?Detection
@@ -166,26 +173,35 @@ final class SpaCyNerDriver implements NerDriver
             return null;
         }
 
-        $start = (int) $entity['start_char'];
-        $end = (int) $entity['end_char'];
-        $length = $end - $start;
-        if ($length <= 0 || $start < 0) {
+        $charStart = (int) $entity['start_char'];
+        $charEnd = (int) $entity['end_char'];
+        $charLength = $charEnd - $charStart;
+        if ($charLength <= 0 || $charStart < 0) {
             return null;
         }
 
-        $value = isset($entity['text']) && is_string($entity['text']) && $entity['text'] !== ''
-            ? $entity['text']
-            : substr($text, $start, $length);
+        // When the server includes a pre-computed `text` field use it verbatim;
+        // otherwise extract via mb_substr (character-safe). Either way, derive
+        // byte-based offset/length for the Detection so the engine's
+        // substr_replace() operates at the correct position.
+        if (isset($entity['text']) && is_string($entity['text']) && $entity['text'] !== '') {
+            $value = $entity['text'];
+        } else {
+            $value = mb_substr($text, $charStart, $charLength, 'UTF-8');
+        }
 
         if ($value === '') {
             return null;
         }
 
+        $byteOffset = strlen(mb_substr($text, 0, $charStart, 'UTF-8'));
+        $byteLength = strlen($value);
+
         return new Detection(
             detector: $this->entityMap[$label],
             value: $value,
-            offset: $start,
-            length: $length,
+            offset: $byteOffset,
+            length: $byteLength,
         );
     }
 }

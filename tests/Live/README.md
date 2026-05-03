@@ -50,10 +50,10 @@ present, otherwise the test self-skips with a helpful message.
 
 ## Required env vars per driver
 
-| Test                            | Required env                                     |
-|---------------------------------|--------------------------------------------------|
-| `HuggingFaceNerDriverLiveTest`  | `HUGGINGFACE_API_KEY` (and `PII_REDACTOR_LIVE=1`)|
-| `SpaCyNerDriverLiveTest`        | `SPACY_SERVER_URL`, optional `SPACY_API_KEY`     |
+| Test                            | Required env                                                                  |
+|---------------------------------|-------------------------------------------------------------------------------|
+| `HuggingFaceNerDriverLiveTest`  | `PII_REDACTOR_HUGGINGFACE_API_KEY` (and `PII_REDACTOR_LIVE=1`)                |
+| `SpaCyNerDriverLiveTest`        | `PII_REDACTOR_SPACY_SERVER_URL`, optional `PII_REDACTOR_SPACY_API_KEY`        |
 
 The single boolean `PII_REDACTOR_LIVE=1` is the master opt-in. Without it
 **every** Live test self-skips, regardless of which driver-specific creds are

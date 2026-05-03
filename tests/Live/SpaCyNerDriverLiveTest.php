@@ -12,8 +12,8 @@ use Padosoft\PiiRedactor\PiiRedactorServiceProvider;
  * Opt-in live test for the SpaCyNerDriver. Requires:
  *
  *   PII_REDACTOR_LIVE=1     (master opt-in for the Live testsuite)
- *   SPACY_SERVER_URL=https://your-spacy-server.example/ner
- *   SPACY_API_KEY=...       (optional — protocol allows anonymous servers)
+ *   PII_REDACTOR_SPACY_SERVER_URL=https://your-spacy-server.example/ner
+ *   PII_REDACTOR_SPACY_API_KEY=...  (optional — protocol allows anonymous servers)
  *
  * See tests/Live/README.md for the full convention.
  */
@@ -33,14 +33,14 @@ final class SpaCyNerDriverLiveTest extends TestCase
             $this->markTestSkipped('Live tests are opt-in. Set PII_REDACTOR_LIVE=1 to enable.');
         }
 
-        $serverUrl = getenv('SPACY_SERVER_URL');
+        $serverUrl = getenv('PII_REDACTOR_SPACY_SERVER_URL');
         if ($serverUrl === false || $serverUrl === '') {
-            $this->markTestSkipped('SPACY_SERVER_URL is required for live spaCy tests.');
+            $this->markTestSkipped('PII_REDACTOR_SPACY_SERVER_URL is required for live spaCy tests.');
         }
 
         config(['pii-redactor.ner.spacy.server_url' => (string) $serverUrl]);
 
-        $apiKey = getenv('SPACY_API_KEY');
+        $apiKey = getenv('PII_REDACTOR_SPACY_API_KEY');
         if ($apiKey !== false && $apiKey !== '') {
             config(['pii-redactor.ner.spacy.api_key' => (string) $apiKey]);
         }

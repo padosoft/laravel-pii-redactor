@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Tests\Unit\Ner;
 
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Orchestra\Testbench\TestCase;
 use Padosoft\PiiRedactor\Detectors\Detection;
@@ -329,15 +328,107 @@ final class SpaCyNerDriverTest extends TestCase
 
     public function test_connection_exception_returns_empty_list(): void
     {
-        // Fail open: a network-level failure (timeout, DNS, connection refused)
-        // MUST NOT throw — the driver must return [] so deterministic detectors
-        // are not blocked.
+        // Fail open: a network-level failure (ConnectionException / transport
+        // error / any Throwable) MUST NOT propagate — the driver returns [] so
+        // deterministic detectors are never blocked.
         Http::fake(static function (): never {
-            throw new ConnectionException('Connection timed out');
+            throw new \RuntimeException('Connection timed out');
         });
 
         $driver = new SpaCyNerDriver;
 
         $this->assertSame([], $driver->detect('Mario Rossi works in Milan.'));
+    }
+
+    public function test_runtime_exception_on_transport_returns_empty_list(): void
+    {
+        Http::fake(static function (): never {
+            throw new \RuntimeException('SSL handshake failed');
+        });
+
+        $driver = new SpaCyNerDriver;
+
+        $this->assertSame([], $driver->detect('Mario Rossi works in Milan.'));
+    }
+
+    public function test_multibyte_offsets_are_byte_based(): void
+    {
+        // spaCy (Python) returns character offsets. "Nicolò" has 6 chars but
+        // 7 bytes in UTF-8 (ò = 2 bytes). "Rossi" starts at char 7 → byte 8.
+        // Detection must store byte offsets so the engine's substr_replace()
+        // operates at the correct position.
+        $text = 'Nicolò Rossi';
+
+        Http::fake([
+            '*' => Http::response([
+                'entities' => [
+                    [
+                        'label' => 'PERSON',
+                        'start_char' => 0, // char offset
+                        'end_char' => 6,   // char offset
+                        'text' => 'Nicolò',
+                    ],
+                    [
+                        'label' => 'PERSON',
+                        'start_char' => 7, // char offset
+                        'end_char' => 12,  // char offset
+                        'text' => 'Rossi',
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $driver = new SpaCyNerDriver;
+        $detections = $driver->detect($text);
+
+        $this->assertCount(2, $detections);
+
+        // "Nicolò" — byte offset 0, byte length 7
+        $this->assertSame('Nicolò', $detections[0]->value);
+        $this->assertSame(0, $detections[0]->offset);
+        $this->assertSame(strlen('Nicolò'), $detections[0]->length);
+
+        // "Rossi" — char offset 7 → byte offset 8, byte length 5
+        $this->assertSame('Rossi', $detections[1]->value);
+        $this->assertSame(strlen('Nicolò '), $detections[1]->offset); // "Nicolò" is 7 bytes + 1 space = 8
+        $this->assertSame(strlen('Rossi'), $detections[1]->length);
+
+        // Confirm roundtrip: substr() with byte offsets reconstructs the matched value.
+        foreach ($detections as $d) {
+            $this->assertSame(
+                $d->value,
+                substr($text, $d->offset, $d->length),
+                sprintf('substr() with byte offset must recover value "%s"', $d->value),
+            );
+        }
+    }
+
+    public function test_multibyte_offset_without_text_field_uses_mb_substr(): void
+    {
+        // When the server omits the `text` field, the driver must fall back to
+        // mb_substr() — NOT the byte-based substr() — to extract the value, so
+        // that non-ASCII characters are handled correctly.
+        $text = 'Caffè Rossi'; // "Caffè" = 5 chars, 6 bytes; "Rossi" at char 6, byte 7
+
+        Http::fake([
+            '*' => Http::response([
+                'entities' => [
+                    [
+                        'label' => 'PERSON',
+                        'start_char' => 6, // char offset of "Rossi"
+                        'end_char' => 11,
+                        // deliberately no 'text' field
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $driver = new SpaCyNerDriver;
+        $detections = $driver->detect($text);
+
+        $this->assertCount(1, $detections);
+        $this->assertSame('Rossi', $detections[0]->value);
+        $this->assertSame(strlen('Caffè '), $detections[0]->offset); // 6 bytes for "Caffè" + 1 space
+        $this->assertSame(substr($text, $detections[0]->offset, $detections[0]->length), $detections[0]->value);
     }
 }

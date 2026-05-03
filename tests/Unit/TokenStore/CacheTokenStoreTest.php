@@ -190,4 +190,45 @@ final class CacheTokenStoreTest extends TestCase
         $this->assertCount(1, $a->dump());
         $this->assertCount(1, $b->dump());
     }
+
+    public function test_repeated_put_of_same_token_does_not_duplicate_in_index(): void
+    {
+        // Calling put() multiple times for the same token must not inflate the
+        // index — dump() should return exactly one entry.
+        $store = $this->makeStore();
+        $store->put('[tok:email:dup]', 'same@x.com');
+        $store->put('[tok:email:dup]', 'same@x.com');
+        $store->put('[tok:email:dup]', 'same@x.com');
+
+        $this->assertCount(1, $store->dump());
+    }
+
+    public function test_index_ttl_is_refreshed_on_repeated_put(): void
+    {
+        // addToIndex() must persist the index on EVERY put() (not just when a new
+        // token is added) so the index TTL keeps pace with the token entry TTL.
+        // Without this, an index created at t=0 with TTL=1 would expire even
+        // though a repeated put() at t=0.5 refreshed the token entry's TTL.
+        //
+        // We verify this by: putting a token with TTL=2, sleeping 1s, then
+        // putting the same token again (refreshes both TTLs to 2s), sleeping
+        // another 1s, and confirming the token and its index entry are still
+        // alive. Total elapsed: 2s but each TTL was refreshed to 2s at t=1s.
+        $store = $this->makeStore(ttlSeconds: 2);
+        $store->put('[tok:email:refresh]', 'ttl-refreshed@x.com');
+
+        sleep(1);
+
+        // Repeat put(): this must refresh the index TTL so it does not expire.
+        $store->put('[tok:email:refresh]', 'ttl-refreshed@x.com');
+
+        sleep(1);
+
+        // If the index TTL was NOT refreshed it would have expired by now.
+        $this->assertSame('ttl-refreshed@x.com', $store->get('[tok:email:refresh]'),
+            'Token value must still be alive after TTL refresh');
+        $this->assertArrayHasKey('[tok:email:refresh]', $store->dump(),
+            'dump() must still see the token after its TTL was refreshed via a repeated put()');
+    }
 }
+

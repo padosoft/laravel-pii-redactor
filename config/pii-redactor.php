@@ -254,15 +254,14 @@ return [
     | Custom-rule YAML packs (v0.3)
     |--------------------------------------------------------------------------
     |
-    | Per-tenant detector packs loaded from YAML files at boot. Each pack
-    | registers as a named detector through Pii::extend() at the host's
-    | convenience — see README "Custom rule packs" section.
+    | Per-tenant detector packs loaded from YAML files. In v0.3, registration
+    | is **manual**: call `Pii::extend('pack_name', new CustomRuleDetector(...))`
+    | in a ServiceProvider or boot callback — see README "Custom rule packs".
     |
-    | When this list is non-empty AND `auto_register => true`, the
-    | ServiceProvider walks every entry, loads the YAML via
-    | YamlCustomRuleLoader, and registers a CustomRuleDetector under the
-    | pack's `name`. Failures throw CustomRuleException at boot — better
-    | to crash early than silently miss rules.
+    | The `auto_register` switch and `packs` list shape are reserved for the
+    | v1.0 auto-registration loop (ServiceProvider will walk every entry,
+    | load YAML via YamlCustomRuleLoader, and register a CustomRuleDetector).
+    | Setting `auto_register => true` has no effect in v0.3.
     |
     */
     'custom_rules' => [

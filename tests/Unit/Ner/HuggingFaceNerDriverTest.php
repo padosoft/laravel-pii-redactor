@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Tests\Unit\Ner;
 
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Padosoft\PiiRedactor\Detectors\Detection;
@@ -285,11 +284,25 @@ final class HuggingFaceNerDriverTest extends TestCase
 
     public function test_connection_exception_returns_empty_list(): void
     {
-        // Fail open: a network-level failure (timeout, DNS, connection refused)
-        // MUST NOT throw — the driver must return [] so deterministic detectors
-        // are not blocked.
+        // Fail open: a network-level failure (ConnectionException / transport
+        // error / any Throwable) MUST NOT propagate — the driver returns [] so
+        // deterministic detectors are never blocked.
         Http::fake(static function (): never {
-            throw new ConnectionException('Connection timed out');
+            throw new \RuntimeException('Connection timed out');
+        });
+
+        $driver = new HuggingFaceNerDriver(apiKey: 'test-key');
+
+        $this->assertSame([], $driver->detect(self::TEXT));
+    }
+
+    public function test_runtime_exception_on_transport_returns_empty_list(): void
+    {
+        // Covers non-ConnectionException transport failures (e.g. RequestException,
+        // Curl\CurlException) — all Throwable sub-types are caught and converted
+        // to an empty list to honour the fail-open contract.
+        Http::fake(static function (): never {
+            throw new \RuntimeException('SSL handshake failed');
         });
 
         $driver = new HuggingFaceNerDriver(apiKey: 'test-key');
