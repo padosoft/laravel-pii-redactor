@@ -13,7 +13,7 @@ use Padosoft\PiiRedactor\Tests\TestCase;
  *
  * Skipped by default. Enable with both env vars set:
  *   PII_REDACTOR_LIVE=1
- *   HUGGINGFACE_API_KEY=hf_xxx
+ *   PII_REDACTOR_HUGGINGFACE_API_KEY=hf_xxx
  *
  * Never runs in CI. The default model is multilingual; cold starts can take
  * 20+ seconds because of `wait_for_model: true` — the timeout is bumped to
@@ -27,9 +27,9 @@ final class HuggingFaceNerDriverLiveTest extends TestCase
             $this->markTestSkipped('Live tests are opt-in. Set PII_REDACTOR_LIVE=1 to enable.');
         }
 
-        $apiKey = (string) getenv('HUGGINGFACE_API_KEY');
+        $apiKey = (string) getenv('PII_REDACTOR_HUGGINGFACE_API_KEY');
         if ($apiKey === '') {
-            $this->markTestSkipped('HUGGINGFACE_API_KEY is required for live HuggingFace tests.');
+            $this->markTestSkipped('PII_REDACTOR_HUGGINGFACE_API_KEY is required for live HuggingFace tests.');
         }
 
         $driver = new HuggingFaceNerDriver(

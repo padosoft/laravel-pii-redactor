@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Ner;
 
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Padosoft\PiiRedactor\Detectors\Detection;
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
+use Throwable;
 
 /**
  * NER driver backed by a generic spaCy HTTP server.
@@ -101,25 +101,32 @@ final class SpaCyNerDriver implements NerDriver
             return [];
         }
 
-        $request = $this->buildRequest();
-
+        // Fail-open contract: every recoverable error path returns []. The
+        // try/catch covers ANY Throwable from the HTTP layer — Laravel's
+        // HTTP client throws `ConnectionException` on transport failures
+        // (timeout / DNS / TLS / refused connection) and `RequestException`
+        // when `$response->throw()` is wired upstream; both descend from
+        // Throwable, so a single catch block keeps the contract simple
+        // and avoids PHPStan `catch.neverThrown` false positives caused by
+        // the facade's untyped @throws annotation. A NER outage MUST NOT
+        // block redaction of the deterministic detectors.
         try {
+            $request = $this->buildRequest();
             $response = $request->post($this->serverUrl, ['text' => $text]);
-        } catch (ConnectionException) {
-            // Fail open: a network-level failure (timeout, DNS, connection
-            // refused) MUST NOT block redaction of the deterministic detectors.
+        } catch (Throwable) {
             return [];
         }
 
         if (! $response->ok()) {
-            // Fail open: a NER outage MUST NOT block redaction of the
-            // deterministic detectors. Logging belongs to the host
-            // application — this driver returns empty and lets the engine
-            // proceed with whatever the other detectors produced.
             return [];
         }
 
-        $body = $response->json();
+        try {
+            $body = $response->json();
+        } catch (Throwable) {
+            return [];
+        }
+
         if (! is_array($body) || ! isset($body['entities']) || ! is_array($body['entities'])) {
             return [];
         }
@@ -149,6 +156,20 @@ final class SpaCyNerDriver implements NerDriver
      * Translate a single spaCy entity row into a Detection or null when the
      * row is malformed or carries an unmapped label.
      *
+     * spaCy emits CHARACTER offsets (Python `str` indexing — Unicode
+     * codepoint positions). The package's RedactorEngine, Detection, and
+     * `substr` / `substr_replace` calls operate on BYTE offsets. For
+     * non-ASCII UTF-8 text (Italian accents, Greek/Cyrillic, emoji), the
+     * two scales diverge — `Antoñio` is 7 chars but 8 bytes. Without
+     * conversion, every multibyte character before the entity shifts the
+     * effective replacement window by one byte, corrupting the redacted
+     * output and potentially breaking UTF-8 sequences mid-way.
+     *
+     * Fix: use `mb_substr` to slice the `[0, start_char)` and
+     * `[0, end_char)` prefixes in CHARACTER units, then measure their byte
+     * length via `strlen` to obtain the byte offset / byte end. The
+     * resulting Detection offsets line up with what the engine expects.
+     *
      * @param  mixed  $entity
      */
     private function mapEntity($entity, string $text): ?Detection
@@ -166,16 +187,24 @@ final class SpaCyNerDriver implements NerDriver
             return null;
         }
 
-        $start = (int) $entity['start_char'];
-        $end = (int) $entity['end_char'];
-        $length = $end - $start;
-        if ($length <= 0 || $start < 0) {
+        $startChar = (int) $entity['start_char'];
+        $endChar = (int) $entity['end_char'];
+        if ($endChar <= $startChar || $startChar < 0) {
+            return null;
+        }
+
+        // Convert character offsets → byte offsets (UTF-8 aware).
+        $byteOffset = strlen((string) mb_substr($text, 0, $startChar, 'UTF-8'));
+        $byteEnd = strlen((string) mb_substr($text, 0, $endChar, 'UTF-8'));
+        $byteLength = $byteEnd - $byteOffset;
+
+        if ($byteLength <= 0) {
             return null;
         }
 
         $value = isset($entity['text']) && is_string($entity['text']) && $entity['text'] !== ''
             ? $entity['text']
-            : substr($text, $start, $length);
+            : substr($text, $byteOffset, $byteLength);
 
         if ($value === '') {
             return null;
@@ -184,8 +213,8 @@ final class SpaCyNerDriver implements NerDriver
         return new Detection(
             detector: $this->entityMap[$label],
             value: $value,
-            offset: $start,
-            length: $length,
+            offset: $byteOffset,
+            length: $byteLength,
         );
     }
 }

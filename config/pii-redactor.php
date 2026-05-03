@@ -251,28 +251,36 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Custom-rule YAML packs (v0.3)
+    | Custom-rule YAML packs (v0.3 — manual registration; auto-register lands in v1.0)
     |--------------------------------------------------------------------------
     |
-    | Per-tenant detector packs loaded from YAML files at boot. Each pack
-    | registers as a named detector through Pii::extend() at the host's
-    | convenience — see README "Custom rule packs" section.
+    | Per-tenant detector packs loaded from YAML files. Each pack registers
+    | as a named detector through `Pii::extend()` at the host's convenience —
+    | see README "Custom rule packs" section.
     |
-    | When this list is non-empty AND `auto_register => true`, the
-    | ServiceProvider walks every entry, loads the YAML via
-    | YamlCustomRuleLoader, and registers a CustomRuleDetector under the
-    | pack's `name`. Failures throw CustomRuleException at boot — better
-    | to crash early than silently miss rules.
+    | v0.3 ships the loader + exception + model + detector classes
+    | (`YamlCustomRuleLoader`, `CustomRule`, `CustomRuleSet`,
+    | `CustomRuleDetector`, `CustomRuleException`). Hosts wire packs
+    | explicitly in their own bootstrap code:
+    |
+    |     $loader = new YamlCustomRuleLoader();
+    |     $set = $loader->load(storage_path('app/pii-rules/it-albo.yaml'));
+    |     Pii::extend('custom_it_albo', new CustomRuleDetector('custom_it_albo', $set));
+    |
+    | The `auto_register` switch + `packs` list shape below are RESERVED
+    | for v1.0 — the ServiceProvider walk that consumes them lands then.
+    | In v0.3 these keys are documented but not yet read by the SP.
+    | Setting `auto_register => true` today is a no-op; safe to leave at
+    | the default `false` until the v1.0 upgrade lands.
     |
     */
     'custom_rules' => [
+        // RESERVED — read by v1.0 SP, ignored by v0.3.
         'auto_register' => env('PII_REDACTOR_CUSTOM_RULES_AUTO_REGISTER', false),
+        // RESERVED shape for v1.0 auto-register loop:
+        //   [ 'name' => 'custom_it_albo', 'path' => storage_path('app/pii-rules/it-albo.yaml') ]
         'packs' => [
-            // Example shape; populated by the host application.
-            // [
-            //     'name' => 'custom_it_albo',
-            //     'path' => storage_path('app/pii-rules/it-albo.yaml'),
-            // ],
+            //
         ],
     ],
 

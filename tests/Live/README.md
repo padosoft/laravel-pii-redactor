@@ -50,10 +50,17 @@ present, otherwise the test self-skips with a helpful message.
 
 ## Required env vars per driver
 
-| Test                            | Required env                                     |
-|---------------------------------|--------------------------------------------------|
-| `HuggingFaceNerDriverLiveTest`  | `HUGGINGFACE_API_KEY` (and `PII_REDACTOR_LIVE=1`)|
-| `SpaCyNerDriverLiveTest`        | `SPACY_SERVER_URL`, optional `SPACY_API_KEY`     |
+| Test                            | Required env                                                                                                  |
+|---------------------------------|---------------------------------------------------------------------------------------------------------------|
+| `HuggingFaceNerDriverLiveTest`  | `PII_REDACTOR_HUGGINGFACE_API_KEY` (plus `PII_REDACTOR_LIVE=1`)                                               |
+| `SpaCyNerDriverLiveTest`        | `PII_REDACTOR_SPACY_SERVER_URL`, optional `PII_REDACTOR_SPACY_API_KEY` (plus `PII_REDACTOR_LIVE=1`)           |
+
+The Live suite uses the **same `PII_REDACTOR_*` env var names as the package
+config** (`config/pii-redactor.php`). One naming surface — set the var once and
+both the runtime driver and the Live test pick it up. Earlier v0.3 drafts used
+unprefixed names (`HUGGINGFACE_API_KEY`) for the Live tests; that was corrected
+on Copilot review because it caused developers to set the package vars and
+still see the suite self-skip silently.
 
 The single boolean `PII_REDACTOR_LIVE=1` is the master opt-in. Without it
 **every** Live test self-skips, regardless of which driver-specific creds are

@@ -131,11 +131,19 @@ final class CacheTokenStore implements TokenStore
         $idx = $this->index();
         if (! in_array($token, $idx, true)) {
             $idx[] = $token;
-            if ($this->ttlSeconds !== null && $this->ttlSeconds > 0) {
-                $this->cache->put($this->indexKey(), $idx, $this->ttlSeconds);
-            } else {
-                $this->cache->forever($this->indexKey(), $idx);
-            }
+        }
+
+        // Re-persist the index key on EVERY put() — even for already-
+        // indexed tokens — so the index TTL stays in lockstep with the
+        // most-recently-refreshed token entry. Without this refresh, a
+        // long-running cache (TTL 1h) where the same token is re-applied
+        // every 30 minutes would still see the index key expire after
+        // the original 1h while the token entry keeps getting refreshed.
+        // dump() / clear() would then stop seeing live tokens.
+        if ($this->ttlSeconds !== null && $this->ttlSeconds > 0) {
+            $this->cache->put($this->indexKey(), $idx, $this->ttlSeconds);
+        } else {
+            $this->cache->forever($this->indexKey(), $idx);
         }
     }
 }

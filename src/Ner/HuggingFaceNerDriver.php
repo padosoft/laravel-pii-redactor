@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Ner;
 
-use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Padosoft\PiiRedactor\Detectors\Detection;
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
+use Throwable;
 
 /**
  * NER driver backed by the HuggingFace Inference API.
@@ -90,6 +90,16 @@ final class HuggingFaceNerDriver implements NerDriver
             return [];
         }
 
+        // Fail-open contract: every recoverable error path returns []. The
+        // try/catch covers ANY Throwable from the HTTP layer — Laravel's
+        // HTTP client throws `ConnectionException` on transport failures
+        // (timeout / DNS / TLS / refused connection) and `RequestException`
+        // when `$response->throw()` is wired upstream; both descend from
+        // Throwable, so a single catch block keeps the contract simple
+        // and avoids PHPStan `catch.neverThrown` false positives caused by
+        // the facade's untyped @throws annotation. A NER outage MUST NOT
+        // block redaction of the deterministic detectors; logging belongs
+        // to the host application.
         try {
             $response = Http::withToken($this->apiKey)
                 ->timeout($this->timeoutSeconds)
@@ -98,21 +108,20 @@ final class HuggingFaceNerDriver implements NerDriver
                     'inputs' => $text,
                     'options' => ['wait_for_model' => true],
                 ]);
-        } catch (ConnectionException) {
-            // Fail open: a network-level failure (timeout, DNS, connection
-            // refused) MUST NOT block redaction of the deterministic detectors.
+        } catch (Throwable) {
             return [];
         }
 
         if (! $response->ok()) {
-            // Fail open: a NER outage MUST NOT block redaction of the
-            // deterministic detectors. Logging belongs to the host
-            // application — this driver returns empty and lets the engine
-            // proceed with whatever the other detectors produced.
             return [];
         }
 
-        $body = $response->json();
+        try {
+            $body = $response->json();
+        } catch (Throwable) {
+            return [];
+        }
+
         if (! is_array($body)) {
             return [];
         }
