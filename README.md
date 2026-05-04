@@ -479,11 +479,21 @@ With `--show-samples` (raw values restored):
 
 ## Laravel integration recipes
 
-The package is **transport-agnostic** — `Pii::redact()` is a pure
-function (in : string, out : string). That keeps the surface tiny, but
-it also means the package itself does NOT decide *where* in your
-Laravel app the redaction happens. This section documents the two
-production-tested integration shapes plus the strategy decision tree.
+The package is **transport-agnostic** — `Pii::redact()` and
+`RedactorEngine::redact()` accept a string and return a redacted
+string, so they slot into HTTP, queue, CLI, and event paths
+identically.
+
+> **Side-effects to expect.** `redact()` is not strictly pure: when
+> the active strategy is `tokenise` it persists `(token, original)`
+> rows to the configured `TokenStore` (see `pii-redactor.token_store`),
+> and when audit-trail is enabled it dispatches a `PiiRedactionPerformed`
+> event after every call. Both behaviours are documented in the
+> `RedactorEngine` source. Keep this in mind if you wrap the call in
+> a transaction or invoke it from a hot loop.
+
+This section documents the two production-tested integration shapes
+plus the strategy decision tree.
 
 > **Real-world reference**: AskMyDocs (the v4.1+ enterprise RAG / chat
 > platform) wires this package at four observable touch-points using
@@ -492,6 +502,23 @@ production-tested integration shapes plus the strategy decision tree.
 > and `app/Http/Controllers/Api/Admin/LogViewerController.php` of
 > [`lopadova/AskMyDocs`](https://github.com/lopadova/AskMyDocs) — feel
 > free to copy.
+
+### A note on config namespaces — package vs host
+
+This package's own runtime knobs (master switch, default strategy,
+salt, mask token, NER driver, …) live under `pii-redactor.*` (file:
+`config/pii-redactor.php`) and are driven by the documented
+`PII_REDACTOR_*` env vars. **Do not invent a parallel
+`app.pii_redactor` tree** — turning the package on via
+`PII_REDACTOR_ENABLED=true` will not flip a guard that reads
+`config('app.pii_redactor.enabled')`.
+
+What you DO need is your own per-touch-point integration knobs (e.g.
+"the chat middleware is active", "the embedding pre-redact is
+active"). Pick a host-app config namespace and document the env-var
+names alongside the package's own. The recipes below use a
+placeholder namespace `myapp.pii.*` — substitute your project's
+real config key (AskMyDocs uses `kb.pii_redactor.*`, for example).
 
 ### Integration shape A — HTTP middleware (best practice for chat / API write paths)
 
@@ -524,13 +551,18 @@ final class RedactChatPii
 
     public function handle(Request $request, Closure $next): Response
     {
-        // Two-gate guard — host config drives whether the middleware
-        // is active. Default OFF so a fresh install doesn't change
-        // behaviour until an operator opts in.
-        if (! (bool) config('app.pii_redactor.enabled', false)) {
+        // Gate 1 — the package's OWN master switch
+        // (`PII_REDACTOR_ENABLED` env / `pii-redactor.enabled` config).
+        // When the package is disabled at the env level, every call
+        // path skips redaction.
+        if (! (bool) config('pii-redactor.enabled', false)) {
             return $next($request);
         }
-        if (! (bool) config('app.pii_redactor.persist_chat_redacted', false)) {
+
+        // Gate 2 — your host-app integration knob.
+        // Substitute `myapp.pii.middleware_active` with the config key
+        // your project actually uses.
+        if (! (bool) config('myapp.pii.middleware_active', false)) {
             return $next($request);
         }
 
@@ -575,13 +607,20 @@ Route::post('/chat/messages/stream', [ChatStreamController::class, 'store'])
 
 **4. Pin the binding scope with an architecture test** so a future
 refactor cannot accidentally extend the binding to admin / curator /
-ingest routes:
+ingest routes. Use a substring match (not a prefix match) so bare
+URIs like `admin` and `api/admin` are caught alongside `admin/...`
+and `api/admin/...`:
 
 ```php
 // tests/Architecture/PiiMiddlewareScopeTest.php
 final class PiiMiddlewareScopeTest extends TestCase
 {
-    private const FORBIDDEN_PREFIXES = ['admin/', 'api/admin/', 'api/ingest'];
+    /**
+     * Substrings — NOT prefixes. A bare `admin` URI does not start
+     * with `admin/`, so a prefix match would let the binding reach
+     * the root admin endpoints unnoticed.
+     */
+    private const FORBIDDEN_SUBSTRINGS = ['admin', 'ingest'];
 
     public function test_redact_chat_pii_is_not_bound_to_admin_or_ingest_routes(): void
     {
@@ -591,8 +630,8 @@ final class PiiMiddlewareScopeTest extends TestCase
             if (! in_array('redact-chat-pii', $bag, true) && ! in_array(\App\Http\Middleware\RedactChatPii::class, $bag, true)) {
                 continue;
             }
-            foreach (self::FORBIDDEN_PREFIXES as $forbidden) {
-                $this->assertStringStartsNotWith($forbidden, $route->uri());
+            foreach (self::FORBIDDEN_SUBSTRINGS as $forbidden) {
+                $this->assertStringNotContainsString($forbidden, $route->uri());
             }
         }
     }
@@ -607,9 +646,13 @@ service-to-service callers. Inject `RedactorEngine` directly and call
 `redact()` at the boundary where the untrusted text first lands in
 your domain.
 
-**Example — embedding cache pre-redact** (so PII never leaks into
-the cache key column AND never reaches the embedding provider's HTTP
-call):
+**Forcing a strategy override.** When you want a specific strategy
+for a service path (regardless of the package's default), pass an
+override to `redact()` rather than autowiring a fresh strategy
+instance — that way you respect the host's configured `mask_token`,
+salt, hex length, etc. The cleanest way is to construct the strategy
+explicitly from the package's config so the host's overrides flow
+through:
 
 ```php
 use Padosoft\PiiRedactor\RedactorEngine;
@@ -620,15 +663,23 @@ final class EmbeddingCacheService
     public function __construct(
         private readonly EmbeddingProvider $provider,
         private readonly RedactorEngine $engine,
-        private readonly MaskStrategy $maskStrategy,
     ) {}
 
     /** @param  list<string>  $texts */
     public function generate(array $texts): EmbeddingsResponse
     {
-        if (config('app.pii_redactor.enabled') && config('app.pii_redactor.redact_before_embeddings')) {
+        if (config('pii-redactor.enabled') && config('myapp.pii.redact_before_embeddings')) {
+            // Construct mask explicitly from the package's mask_token
+            // so the host's `PII_REDACTOR_MASK_TOKEN` override is honoured.
+            // Autowiring `app(MaskStrategy::class)` would create a fresh
+            // instance with the hard-coded `[REDACTED]` default and skip
+            // the configured token entirely.
+            $mask = new MaskStrategy(
+                (string) config('pii-redactor.mask_token', '[REDACTED]'),
+            );
+
             $texts = array_map(
-                fn (string $t): string => $this->engine->redact($t, $this->maskStrategy),
+                fn (string $t): string => $this->engine->redact($t, $mask),
                 $texts,
             );
         }
@@ -640,15 +691,22 @@ final class EmbeddingCacheService
 ```
 
 **Example — queue job** that consumes a webhook payload before
-persisting:
+persisting. Note the explicit string guard — webhook payloads can
+arrive as arrays / objects / nulls, and `redact()` is typed
+`string`-in / `string`-out:
 
 ```php
 final class IngestExternalChatJob implements ShouldQueue
 {
     public function handle(RedactorEngine $engine): void
     {
-        $body = $this->payload['message'] ?? '';
-        if (config('app.pii_redactor.enabled')) {
+        $body = $this->payload['message'] ?? null;
+        if (! is_string($body) || $body === '') {
+            ChatLog::create(['body' => $body, /* ... */]);
+            return;
+        }
+
+        if (config('pii-redactor.enabled') && config('myapp.pii.redact_jobs')) {
             $body = $engine->redact($body);
         }
         ChatLog::create(['body' => $body, /* ... */]);
@@ -666,21 +724,21 @@ one whose properties match the surface you're protecting.
 |---|---|---|
 | **Embedding cache key + provider call** | `MaskStrategy` | Embeddings are one-way; no detokenise round-trip needed. Mask is stable (same input → same masked output) so cache hit-rate is preserved across re-ingestion of the same document. Mask carries no per-tenant secret, so multi-tenant cache reuse stays intact. |
 | **Chat persistence** (when an operator may need to recover originals later for audit / GDPR data subject request) | `TokeniseStrategy` | The host can call `TokeniseStrategy::detokeniseString()` to round-trip a redacted record back to plaintext. Pair with the `database` token store (set `PII_REDACTOR_TOKEN_STORE=database`) so the reverse map survives deploys + queue worker restarts + horizontal scale-out. |
-| **Chat persistence** (when originals must be cryptographically forgotten) | `MaskStrategy` or `DropStrategy` | One-way. `MaskStrategy` keeps the redacted record human-readable (`[REDACTED:email]`); `DropStrategy` removes the matched span entirely. |
+| **Chat persistence** (when originals must be cryptographically forgotten) | `MaskStrategy` or `DropStrategy` | One-way. `MaskStrategy` replaces every detection with the configured `mask_token` (default `[REDACTED]`, single fixed string regardless of detector — see `pii-redactor.mask_token` to override); `DropStrategy` removes the matched span entirely. |
 | **Cross-system identifier matching** (you want to know that two systems mention the same PII without revealing what it is) | `HashStrategy` | Deterministic SHA-256 namespaced per-detector. Same PII produces the same hash across systems sharing the salt. Secret = the salt. |
 | **Insights / analytics snapshots** (read-only dashboards built from chat samples) | `MaskStrategy` | No round-trip needed; mask short-circuits leakage to both the LLM call and the snapshot persisted into your dashboard table. |
-| **Operator-driven detokenise endpoint** (gated by a Spatie permission, audited per call) | Read the config: only `TokeniseStrategy` allows the round-trip. Surface a 422 in the controller when `app(RedactionStrategy::class)` is not a `TokeniseStrategy` — pretending success on a one-way deploy is a worse UX than the explicit "this deploy does not retain originals" message. |
+| **Operator-driven detokenise endpoint** (gated by a Spatie permission, audited per call) | `TokeniseStrategy::detokeniseString()` against the row's text. The detokenise call resolves `[tok:detector:hex]` literals via direct token-store lookup, so historical tokenised rows stay recoverable even after the app's *current default* strategy changes — what matters is whether the row's text actually contains tokenise literals. Surface a 422 only when there are no `[tok:` markers in the row to detokenise (or when the configured token store is unavailable). |
 
 ### Best-practice checklist for a production deploy
 
-- [ ] **Default-off**: every integration knob defaults `false`. Hosts opt in by flipping an env var.
+- [ ] **Default-off integration knobs**: every host integration knob (your `myapp.pii.middleware_active`, `myapp.pii.redact_before_embeddings`, etc.) defaults `false`. Hosts opt in by flipping an env var. The package's own `pii-redactor.enabled` defaults `true` (the package is harmless when no integration calls it).
 - [ ] **Narrow scope**: middleware is bound only to routes that handle user-supplied free-form content. Curator / admin / configuration routes are NEVER bound (would silently corrupt KB pipelines, mangle role names, etc.).
-- [ ] **Architecture test pin**: an architecture test enumerates the binding scope so a future refactor that extends the binding fails CI.
+- [ ] **Architecture test pin** with a substring match (not a prefix match) so bare `admin` / `api/admin` URIs are caught.
 - [ ] **Tenant-scoped reads**: when reading from tables that store redacted records (e.g. `chat_logs`), scope the query to the active tenant if your app is multi-tenant. The package itself is tenant-agnostic; your reads must NOT be.
 - [ ] **Detokenise gate**: if you expose an operator-driven detokenise endpoint, gate it with a dedicated permission AND audit every call (200 + 403). Single-use confirm tokens with `lockForUpdate()` held inside the same transaction as the `update('used_at')` write are the canonical anti-replay shape.
-- [ ] **Strategy preflight**: surface a 422 (not 200 with empty body) when the active strategy doesn't support the requested operation (e.g. detokenise call with `MaskStrategy` configured).
-- [ ] **Salt rotation policy**: document how often you rotate `PII_REDACTOR_SALT` and what happens to the existing `pii_token_maps` rows when you do (typically: keep the old salt active for the retention window, then drop the old rows in bulk).
+- [ ] **Strategy preflight**: when the row's text contains no `[tok:` literals, surface a 422 (not 200 with empty body) — that's the clean signal that there's nothing to detokenise. Pretending success on a one-way deploy is a worse UX than the explicit "this row has no tokenised content" message.
 - [ ] **Audit-trail visibility**: every detokenise / unmask call writes a row to your audit table tagged with the actor, the target row id, the timestamp, the IP, and the user-agent. The host is responsible for choosing where (e.g. `admin_command_audit` table in AskMyDocs).
+- [ ] **Salt is APP_KEY-class**: rotating `PII_REDACTOR_SALT` after the fact is rare. Existing tokenise rows in `pii_token_maps` are detokenised by direct token-literal lookup, so a salt change does NOT invalidate stored mappings — only NEW tokens emit hex digests derived from the new salt. For `HashStrategy`, by contrast, salt rotation does break cross-system joins (because every old hash becomes unrecoverable). Plan accordingly.
 - [ ] **NER off in the hot path** (default): the regex / checksum detectors are deterministic and microsecond-fast. Turn the optional NER drivers ON only on offline / batch surfaces or with an explicit per-request opt-in.
 
 ---
