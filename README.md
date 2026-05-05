@@ -37,6 +37,7 @@ $report = Pii::scan('Telefono +39 333 1234567 e P.IVA 12345678903.');
 - [Quick start](#quick-start)
 - [Usage examples](#usage-examples)
 - [Laravel integration recipes](#laravel-integration-recipes)
+- [Web Panel UI](#web-panel-ui)
 - [Admin panel readiness](#admin-panel-readiness)
 - [Configuration reference](#configuration-reference)
 - [Architecture](#architecture)
@@ -285,6 +286,7 @@ That's it. The ServiceProvider boots, the `DetectorPackRegistry` walks the confi
 |--------------------------------------------|-------------------------------------|--------------------------|--------------------------|--------------------------|--------------------------|
 | Native Laravel facade + ServiceProvider    | ✅ YES                              | ❌ NO (Python)           | ✅ YES (different scope) | ❌ NO (AWS SDK)          | ❌ NO (GCP SDK)          |
 | `composer require` install                 | ✅ YES                              | ❌ NO                    | ✅ YES (different scope) | ❌ NO                    | ❌ NO                    |
+| Admin web UI / dashboard                   | ✅ YES ([companion package](https://github.com/padosoft/laravel-pii-redactor-admin)) | 🟡 Presidio Analyzer UI only | ❌ NO | ❌ Console only | ❌ Console only |
 | Operates entirely offline (default path)   | ✅ YES                              | ✅ YES (self-hosted)     | ✅ YES                   | ❌ NO (AWS API)          | ❌ NO (GCP API)          |
 | GDPR data-minimisation friendly            | ✅ YES (no transit)                 | ✅ YES                   | ✅ YES                   | ❌ NO (US transit)       | ❌ NO (US transit)       |
 | Cost per 1M characters                     | ✅ EUR 0                            | 🟡 self-hosted compute   | ✅ EUR 0                 | ❌ ~ EUR 1               | ❌ ~ EUR 1.50            |
@@ -748,9 +750,19 @@ one whose properties match the surface you're protecting.
 
 ---
 
+## Web Panel UI
+
+This package now has a companion web panel with a polished Laravel admin dashboard: [padosoft/laravel-pii-redactor-admin](https://github.com/padosoft/laravel-pii-redactor-admin).
+
+The UI gives operators a safe overview of the redaction engine, detector hits, token-map activity, audit events, custom-rule health, and strategy configuration. It is built on top of the secret-free inspector APIs exposed by this package, so the panel can surface runtime state without returning salts, API keys, raw PII, or token originals.
+
+![Laravel PII Redactor Admin web panel](resources/laravel-pii-redactor-admin-overview.png)
+
+---
+
 ## Admin panel readiness
 
-The core package is intentionally **headless**: it does not ship controllers, routes, React components, or admin UI assets. Enterprise dashboards should live in a separate package, while this package exposes the safe backend primitives needed by that UI.
+The core package is intentionally **headless**: it does not ship controllers, routes, React components, or admin UI assets. The admin dashboard lives in the separate [`padosoft/laravel-pii-redactor-admin`](https://github.com/padosoft/laravel-pii-redactor-admin) package, while this package exposes the safe backend primitives needed by that UI.
 
 - `RedactorAdminInspector::snapshot()` returns a secret-free runtime snapshot: enabled state, default strategy, audit flag, token-store driver/class, NER status, detectors, packs, and custom-rule count. It does **not** expose salts, API keys, raw PII, token originals, or redacted output.
 - `RedactionStrategyFactory::names()` and `make()` provide the public strategy construction surface for admin preview APIs, so hosts do not duplicate private service-provider logic.
@@ -758,7 +770,7 @@ The core package is intentionally **headless**: it does not ship controllers, ro
 - `TokenResolutionService::detokeniseString()` resolves only `[tok:<detector>:<hex>]` values referenced in the input through the configured `TokenStore`; it never loads the whole reverse map.
 - `CustomRulePackInspector::configuredPacks()` reports configured YAML pack health without mutating the engine or registering detectors.
 
-The companion UI should be a separate Laravel 13.x package (`padosoft/laravel-pii-redactor-admin`) with Vite, React, TypeScript, and Tailwind CSS, connected to these APIs. The implementation contract, endpoint plan, audit schema, PHPUnit gates, and frontend gates are documented in [docs/admin-panel-architecture-plan.md](docs/admin-panel-architecture-plan.md).
+The companion UI is the Laravel 13.x package [`padosoft/laravel-pii-redactor-admin`](https://github.com/padosoft/laravel-pii-redactor-admin), built with Vite, React, TypeScript, and Tailwind CSS and connected to these APIs. The implementation contract, endpoint plan, audit schema, PHPUnit gates, and frontend gates are documented in [docs/admin-panel-architecture-plan.md](docs/admin-panel-architecture-plan.md).
 
 ---
 
