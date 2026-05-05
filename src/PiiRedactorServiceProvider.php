@@ -19,11 +19,8 @@ use Padosoft\PiiRedactor\Ner\NerDriver;
 use Padosoft\PiiRedactor\Ner\StubNerDriver;
 use Padosoft\PiiRedactor\Packs\DetectorPackRegistry;
 use Padosoft\PiiRedactor\Packs\PackContract;
-use Padosoft\PiiRedactor\Strategies\DropStrategy;
-use Padosoft\PiiRedactor\Strategies\HashStrategy;
-use Padosoft\PiiRedactor\Strategies\MaskStrategy;
 use Padosoft\PiiRedactor\Strategies\RedactionStrategy;
-use Padosoft\PiiRedactor\Strategies\TokeniseStrategy;
+use Padosoft\PiiRedactor\Strategies\RedactionStrategyFactory;
 use Padosoft\PiiRedactor\TokenStore\CacheTokenStore;
 use Padosoft\PiiRedactor\TokenStore\DatabaseTokenStore;
 use Padosoft\PiiRedactor\TokenStore\InMemoryTokenStore;
@@ -45,7 +42,14 @@ final class PiiRedactorServiceProvider extends ServiceProvider
 
         $this->app->singleton(TokenStore::class, fn (Application $app): TokenStore => $this->buildTokenStore($app));
 
-        $this->app->singleton(RedactionStrategy::class, fn (Application $app): RedactionStrategy => $this->buildStrategy($app));
+        $this->app->singleton(RedactionStrategyFactory::class, fn (Application $app): RedactionStrategyFactory => new RedactionStrategyFactory(
+            $app['config'],
+            $app->make(TokenStore::class),
+        ));
+
+        $this->app->singleton(RedactionStrategy::class, fn (Application $app): RedactionStrategy => $app
+            ->make(RedactionStrategyFactory::class)
+            ->make());
 
         $this->app->singleton(DetectorPackRegistry::class, function (Application $app): DetectorPackRegistry {
             $packs = (array) $app['config']->get('pii-redactor.packs', []);
@@ -201,42 +205,6 @@ final class PiiRedactorServiceProvider extends ServiceProvider
             $set = $loader->load($path);
             $engine->register(new CustomRuleDetector($name, $set));
         }
-    }
-
-    private function buildStrategy(Application $app): RedactionStrategy
-    {
-        $config = $app['config'];
-        $name = (string) $config->get('pii-redactor.strategy', 'mask');
-
-        return match ($name) {
-            'mask' => new MaskStrategy((string) $config->get('pii-redactor.mask_token', '[REDACTED]')),
-            'hash' => new HashStrategy(
-                salt: $this->requireSalt($config->get('pii-redactor.salt')),
-                hexLength: (int) $config->get('pii-redactor.hash_hex_length', 16),
-            ),
-            'tokenise' => new TokeniseStrategy(
-                salt: $this->requireSalt($config->get('pii-redactor.salt')),
-                idHexLength: (int) $config->get('pii-redactor.token_hex_length', 16),
-                store: $app->make(TokenStore::class),
-            ),
-            'drop' => new DropStrategy,
-            default => throw new StrategyException(sprintf(
-                'Unknown PII redaction strategy [%s]. Valid: mask, hash, tokenise, drop.',
-                $name,
-            )),
-        };
-    }
-
-    private function requireSalt(mixed $raw): string
-    {
-        $salt = is_string($raw) ? $raw : '';
-        if ($salt === '') {
-            throw new StrategyException(
-                'PII_REDACTOR_SALT must be a non-empty string when using hash or tokenise strategies.',
-            );
-        }
-
-        return $salt;
     }
 
     private function buildTokenStore(Application $app): TokenStore

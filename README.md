@@ -37,6 +37,7 @@ $report = Pii::scan('Telefono +39 333 1234567 e P.IVA 12345678903.');
 - [Quick start](#quick-start)
 - [Usage examples](#usage-examples)
 - [Laravel integration recipes](#laravel-integration-recipes)
+- [Admin panel readiness](#admin-panel-readiness)
 - [Configuration reference](#configuration-reference)
 - [Architecture](#architecture)
 - [AI vibe-coding pack](#ai-vibe-coding-pack)
@@ -71,6 +72,7 @@ PII redaction is one of those domains where the existing options force a bad tra
 - **2 production NER drivers (opt-in)** — `HuggingFaceNerDriver`, `SpaCyNerDriver`. Network calls fail open.
 - **YAML custom-rule packs** — register tenant-specific detectors from `*.yaml` files; SP auto-registers when `pii-redactor.custom_rules.auto_register = true`.
 - **Typed `DetectionReport`** — audit every redaction without re-running the engine.
+- **Admin-ready headless APIs** — safe status snapshots, strategy factory, masked report formatter, token resolution, and custom-rule diagnostics for a separate Laravel 13 React/Tailwind admin package. See [Admin panel readiness](#admin-panel-readiness).
 
 It is **deliberately small** and **deliberately offline by default**. You can extend it with custom detectors via `Pii::extend()` or your own country pack. The deterministic engine fits in ~200 lines of PHP, the v1.0 surface is locked under semver, and 300+ unit tests + a robustness suite describe every transition.
 
@@ -131,6 +133,7 @@ When two detectors emit overlapping byte ranges (e.g. an email-shaped string tha
    Each rule has a `name` + PCRE `pattern` + optional `flags` (default `u`). Invalid PCRE is rejected at first-match time with a clear `CustomRuleException`. Useful for Italian professional registry IDs (`ISCR-...`, `Tess-XX-...`), tenant-specific account codes, project tracker identifiers, etc.
 - **Live test suite (v0.3)** — `tests/Live/` houses opt-in tests against real APIs (HuggingFace, spaCy server). Each test self-skips unless `PII_REDACTOR_LIVE=1` AND its driver-specific credentials are set. CI runs `Unit` + `Architecture` only — Live tests are operator-driven. See `tests/Live/README.md` for the convention.
 - **Typed `DetectionReport`** — `total()`, `countsByDetector()`, `samplesByDetector(cap)`, `toArray()`. Stable JSON shape for downstream auditors.
+- **Admin-ready headless APIs** — `RedactorAdminInspector` exposes a secret-free runtime snapshot; `RedactionStrategyFactory` builds `mask` / `hash` / `tokenise` / `drop` strategies for admin previews; `DetectionReportFormatter` masks samples by default; `TokenResolutionService` detokenises through the configured `TokenStore` even when the current strategy is not `tokenise`; `CustomRulePackInspector` reports YAML pack health without registering detectors. Full implementation plan for the separate Laravel 13 + Vite + React + Tailwind UI package lives in [docs/admin-panel-architecture-plan.md](docs/admin-panel-architecture-plan.md).
 - **`Pii::extend()` registry** for custom detectors (`custom_codice_iscrizione_albo`, project-specific account ids, etc.).
 - **Artisan command** — `php artisan pii:scan path/to/file.txt --pretty` or `cat data | php artisan pii:scan --from=stdin` (samples masked by default; pass `--show-samples` for raw values during interactive forensics).
 - **Standalone-agnostic** — zero coupling to AskMyDocs / sister packages, enforced by an architecture test.
@@ -745,6 +748,20 @@ one whose properties match the surface you're protecting.
 
 ---
 
+## Admin panel readiness
+
+The core package is intentionally **headless**: it does not ship controllers, routes, React components, or admin UI assets. Enterprise dashboards should live in a separate package, while this package exposes the safe backend primitives needed by that UI.
+
+- `RedactorAdminInspector::snapshot()` returns a secret-free runtime snapshot: enabled state, default strategy, audit flag, token-store driver/class, NER status, detectors, packs, and custom-rule count. It does **not** expose salts, API keys, raw PII, token originals, or redacted output.
+- `RedactionStrategyFactory::names()` and `make()` provide the public strategy construction surface for admin preview APIs, so hosts do not duplicate private service-provider logic.
+- `DetectionReportFormatter::safeArray()` converts `DetectionReport` to an API-ready payload and masks samples by default as `[email]`, `[iban]`, etc.
+- `TokenResolutionService::detokeniseString()` resolves only `[tok:<detector>:<hex>]` values referenced in the input through the configured `TokenStore`; it never loads the whole reverse map.
+- `CustomRulePackInspector::configuredPacks()` reports configured YAML pack health without mutating the engine or registering detectors.
+
+The companion UI should be a separate Laravel 13.x package (`padosoft/laravel-pii-redactor-admin`) with Vite, React, TypeScript, and Tailwind CSS, connected to these APIs. The implementation contract, endpoint plan, audit schema, PHPUnit gates, and frontend gates are documented in [docs/admin-panel-architecture-plan.md](docs/admin-panel-architecture-plan.md).
+
+---
+
 ## Configuration reference
 
 Every key in `config/pii-redactor.php` is documented inline. Highlights:
@@ -775,6 +792,8 @@ src/
  ├── RedactorEngine.php                    core orchestrator (detectors + strategy + overlap + NER + audit-trail)
  ├── Facades/Pii.php                       static-method surface for hosts
  ├── Console/PiiScanCommand.php            php artisan pii:scan
+ ├── Admin/
+ │    └── RedactorAdminInspector.php       secret-free admin/runtime snapshot
  ├── Detectors/                            both multi-country (always-on) and Italian (registered via ItalyPack)
  │    ├── Detector.php                     interface
  │    ├── Detection.php                    immutable value object
@@ -797,12 +816,15 @@ src/
  │         └── SpainPack.php               5 ES detectors (dni / nie / cif / phone_es / address_es)
  ├── Strategies/
  │    ├── RedactionStrategy.php            interface
+ │    ├── RedactionStrategyFactory.php     public factory for mask/hash/tokenise/drop
  │    ├── MaskStrategy.php
  │    ├── HashStrategy.php
  │    ├── TokeniseStrategy.php             reversible — accepts a TokenStore (v0.2)
  │    └── DropStrategy.php
  ├── TokenStore/                           v0.2 — persistent reverse-map storage
  │    ├── TokenStore.php                   interface (put/get/has/clear/dump/load)
+ │    ├── TokenResolutionService.php       detokenise through TokenStore without dump()
+ │    ├── DetokeniseResult.php             API-friendly detokenise result VO
  │    ├── InMemoryTokenStore.php           default — process-local, zero I/O
  │    ├── DatabaseTokenStore.php           Eloquent-backed (chunkById dump, chunked upsert load)
  │    └── Eloquent/
@@ -813,7 +835,8 @@ src/
  │    ├── NerDriver.php                    interface (name, detect)
  │    └── StubNerDriver.php                no-op default; HuggingFace + spaCy in v0.3
  ├── Reports/
- │    └── DetectionReport.php              total() / countsByDetector() / samplesByDetector() / toArray()
+ │    ├── DetectionReport.php              total() / countsByDetector() / samplesByDetector() / toArray()
+ │    └── DetectionReportFormatter.php     safe API arrays; masks samples by default
  └── Exceptions/
       ├── PiiRedactorException.php         non-final base
       ├── DetectorException.php
@@ -833,7 +856,8 @@ src/CustomRules/                                               v0.3 — YAML cus
  ├── CustomRule.php                                            VO: name + pattern + flags
  ├── CustomRuleSet.php                                         typed list with fromArray()
  ├── YamlCustomRuleLoader.php                                  symfony/yaml-backed loader
- └── CustomRuleDetector.php                                    Detector wrapping a CustomRuleSet
+ ├── CustomRuleDetector.php                                    Detector wrapping a CustomRuleSet
+ └── CustomRulePackInspector.php                               admin diagnostics without registration side effects
 
 src/Exceptions/CustomRuleException.php                         v0.3 — bad YAML / invalid PCRE
 

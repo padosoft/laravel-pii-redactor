@@ -6,6 +6,29 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-06
+
+### Added — admin-ready headless API surface
+
+- **`Padosoft\PiiRedactor\Admin\RedactorAdminInspector`** — secret-free runtime snapshot for admin panels. Reports enabled state, default strategy, audit setting, token-store driver/class, NER status, detector list, pack list, and custom-rule count without exposing salts, API keys, raw samples, token originals, or redacted output.
+- **`Padosoft\PiiRedactor\Strategies\RedactionStrategyFactory`** — public factory for `mask`, `hash`, `tokenise`, and `drop` strategies. The service provider now uses this factory internally, so companion admin APIs can build preview strategies without copying private provider logic.
+- **`Padosoft\PiiRedactor\Reports\DetectionReportFormatter`** — API-safe report formatter that masks samples by default as `[email]`, `[iban]`, etc., while preserving totals and per-detector counts.
+- **`Padosoft\PiiRedactor\TokenStore\TokenResolutionService`** + **`DetokeniseResult`** — detokenise `[tok:<detector>:<hex>]` literals directly through the configured `TokenStore`, even when the current default strategy is not `tokenise`. The service fetches only tokens referenced in the input and never calls `TokenStore::dump()`.
+- **`Padosoft\PiiRedactor\CustomRules\CustomRulePackInspector`** — validates configured YAML rule packs for UI diagnostics without mutating the engine or registering detectors.
+- **`docs/admin-panel-architecture-plan.md`** — implementation contract for a separate Laravel 13.x package (`padosoft/laravel-pii-redactor-admin`) using Vite, React, TypeScript, and Tailwind CSS.
+
+### Changed
+
+- `README.md` documents the new admin-readiness surface, links the architecture plan, and extends the architecture tree with the new APIs.
+
+### Backward compatibility
+
+v1.2 is a **drop-in upgrade** from v1.1. The core package remains headless and does not register admin routes, controllers, React assets, migrations, or UI screens. Existing facade calls, detector packs, strategies, token stores, NER drivers, YAML rules, config keys, and migration behavior remain unchanged.
+
+### Test surface
+
+**631 PHPUnit tests** with focused gates for admin snapshots, strategy factory behavior, safe report formatting, token resolution, and custom-rule diagnostics. PHPStan and Pint are clean.
+
 ## [1.1.0] - 2026-05-03
 
 ### Added — first community-style country packs
