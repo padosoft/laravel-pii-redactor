@@ -7,6 +7,8 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-pii-redactor.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-pii-redactor)
 
+**Official documentation:** [https://doc.laravel-pii-redactor.padosoft.com](https://doc.laravel-pii-redactor.padosoft.com)
+
 ![Laravel PII Redactor banner](resources/Laravel-PII-redactor-banner.png)
 
 > **EU-first PII redaction for Laravel — deterministic regex + checksum-validated detectors organised into opt-in country packs (Italy, Germany, Spain ship built-in; France / Netherlands / Portugal land in v1.2+), plus always-on multi-country detectors (email, IBAN mod-97 for every ISO 13616 country, credit card with Luhn) and a pluggable strategy layer (mask / hash / tokenise / drop) with persistent reverse-map storage (memory / database / cache), opt-in HuggingFace + spaCy NER drivers, and YAML custom-rule packs for tenant-specific identifiers. Zero external services in the default path, zero mandatory LLM cost, GDPR + EU AI Act ready.**

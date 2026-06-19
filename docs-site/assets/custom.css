@@ -1,0 +1,17 @@
+:root {
+  --docmd-color-primary: #0d9488;
+  --docmd-color-primary-contrast: #ffffff;
+  --docmd-radius: 8px;
+}
+
+.docmd-content code {
+  word-break: break-word;
+}
+
+.docmd-content table {
+  font-size: 0.94rem;
+}
+
+.docmd-content .callout {
+  border-radius: 8px;
+}

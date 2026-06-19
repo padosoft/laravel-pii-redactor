@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="laravel-pii-redactor">
+  <rect width="64" height="64" rx="14" fill="#0d9488"/>
+  <path d="M14 18h36v8H14zM14 30h22v8H14zM14 42h30v8H14z" fill="#ecfeff"/>
+  <path d="M43 28l7 7-7 7-7-7z" fill="#134e4a"/>
+</svg>

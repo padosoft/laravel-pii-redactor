@@ -1,0 +1,20 @@
+{
+  "name": "laravel-pii-redactor-docs",
+  "version": "1.0.0",
+  "description": "Static docmd documentation for padosoft/laravel-pii-redactor.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "docmd dev",
+    "build": "docmd build",
+    "check": "node scripts/check-no-raw-html.mjs"
+  },
+  "dependencies": {
+    "@docmd/core": "0.8.6",
+    "@huggingface/transformers": "^4.2.0",
+    "docmd-search": "^0.1.0-alpha.0",
+    "onnxruntime-node": "1.24.3"
+  },
+  "author": "Lorenzo Padovani <lorenzo.padovani@padosoft.com>",
+  "license": "Apache-2.0"
+}

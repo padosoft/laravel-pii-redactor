@@ -1,0 +1,155 @@
+{
+  "title": "laravel-pii-redactor",
+  "description": "EU-first PII redaction for Laravel with deterministic detectors, opt-in country packs, and pluggable redaction strategies.",
+  "url": "https://doc.laravel-pii-redactor.padosoft.com",
+  "src": "docs",
+  "out": "_site",
+  "base": "/",
+  "favicon": "/assets/favicon.svg",
+  "copyCode": true,
+  "pageNavigation": true,
+  "minify": true,
+  "theme": {
+    "name": "default",
+    "appearance": "system",
+    "primaryColor": "#0d9488",
+    "customCss": ["/assets/custom.css"]
+  },
+  "layout": {
+    "spa": true,
+    "header": { "enabled": true },
+    "sidebar": {
+      "enabled": true,
+      "collapsible": true,
+      "defaultCollapsed": false,
+      "position": "left"
+    },
+    "breadcrumbs": true,
+    "footer": {
+      "style": "minimal",
+      "content": "Apache-2.0 documentation for padosoft/laravel-pii-redactor.",
+      "branding": false
+    }
+  },
+  "footer": {
+    "copyright": "Copyright 2026 Padosoft",
+    "links": [
+      { "text": "GitHub", "url": "https://github.com/padosoft/laravel-pii-redactor" },
+      { "text": "Packagist", "url": "https://packagist.org/packages/padosoft/laravel-pii-redactor" }
+    ]
+  },
+  "optionsMenu": {
+    "position": "header",
+    "components": {
+      "search": true,
+      "themeSwitch": true
+    }
+  },
+  "plugins": {
+    "search": {
+      "semantic": true,
+      "model": "Xenova/all-MiniLM-L6-v2",
+      "include": ["**/*.md"],
+      "exclude": ["**/.git/**", "**/_site/**", "**/.docmd-search/**"],
+      "chunkSize": 512,
+      "chunkOverlap": 64,
+      "showConfidence": false,
+      "showFilters": true
+    },
+    "git": {
+      "repo": "https://github.com/padosoft/laravel-pii-redactor",
+      "branch": "main",
+      "editLink": true,
+      "lastUpdated": true,
+      "commitHistory": true,
+      "maxCommits": 5,
+      "dateFormat": "relative"
+    },
+    "seo": {
+      "titleTemplate": "%s | laravel-pii-redactor",
+      "description": "EU-first PII redaction for Laravel with deterministic detectors and reversible tokenisation.",
+      "ogImage": "/assets/favicon.svg"
+    },
+    "sitemap": {
+      "url": "https://doc.laravel-pii-redactor.padosoft.com"
+    },
+    "mermaid": {
+      "theme": "default"
+    },
+    "math": {
+      "katex": {}
+    },
+    "llms": {
+      "enabled": true,
+      "title": "laravel-pii-redactor documentation"
+    },
+    "analytics": {
+      "enabled": false
+    }
+  },
+  "navigation": [
+    { "text": "Overview", "url": "/" },
+    {
+      "text": "Get Started",
+      "items": [
+        { "text": "Quickstart", "url": "/get-started/quickstart" },
+        { "text": "Installation", "url": "/get-started/installation" },
+        { "text": "Configuration", "url": "/get-started/configuration" }
+      ]
+    },
+    {
+      "text": "Guides",
+      "items": [
+        { "text": "Redaction Strategies", "url": "/guides/redaction-strategies" },
+        { "text": "Country Packs", "url": "/guides/country-packs" },
+        { "text": "Custom Rules", "url": "/guides/custom-rules" },
+        { "text": "Token Stores", "url": "/guides/token-stores" },
+        { "text": "NER Drivers", "url": "/guides/ner-drivers" },
+        { "text": "Scan CLI", "url": "/guides/scan-cli" },
+        { "text": "Worked Example", "url": "/guides/worked-example" }
+      ]
+    },
+    {
+      "text": "Concetti & Teoria",
+      "items": [
+        { "text": "Motivazione", "url": "/concetti/motivazione" },
+        { "text": "Teoria", "url": "/concetti/teoria" }
+      ]
+    },
+    {
+      "text": "Architettura",
+      "items": [
+        { "text": "Overview", "url": "/architettura/overview" },
+        { "text": "Pipeline Workflow", "url": "/architettura/pipeline-workflow" },
+        { "text": "Design + Mermaid", "url": "/architettura/design-mermaid" },
+        { "text": "Modello Dati e Contratto", "url": "/architettura/data-contract" },
+        { "text": "ADR", "url": "/architettura/adr" }
+      ]
+    },
+    {
+      "text": "Best Practices",
+      "items": [
+        { "text": "Privacy", "url": "/best-practices/privacy" },
+        { "text": "Detector Authoring", "url": "/best-practices/detector-authoring" },
+        { "text": "Testing", "url": "/best-practices/testing" }
+      ]
+    },
+    {
+      "text": "Operations",
+      "items": [
+        { "text": "Deploy Docs", "url": "/operations/deploy-docs" },
+        { "text": "Troubleshooting", "url": "/operations/troubleshooting" },
+        { "text": "Gotchas and Limits", "url": "/operations/gotchas-limits" }
+      ]
+    },
+    {
+      "text": "Reference",
+      "items": [
+        { "text": "API", "url": "/reference/api" },
+        { "text": "CLI", "url": "/reference/cli" },
+        { "text": "Config", "url": "/reference/config" },
+        { "text": "Events", "url": "/reference/events" }
+      ]
+    }
+  ]
+}
