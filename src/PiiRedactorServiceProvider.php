@@ -22,6 +22,7 @@ use Padosoft\PiiRedactor\Packs\DetectorPackRegistry;
 use Padosoft\PiiRedactor\Packs\PackContract;
 use Padosoft\PiiRedactor\Strategies\RedactionStrategy;
 use Padosoft\PiiRedactor\Strategies\RedactionStrategyFactory;
+use Padosoft\PiiRedactor\Tenancy\ContainerTenantResolver;
 use Padosoft\PiiRedactor\Tenancy\DefaultTenantResolver;
 use Padosoft\PiiRedactor\TokenStore\CacheTokenStore;
 use Padosoft\PiiRedactor\TokenStore\DatabaseTokenStore;
@@ -55,7 +56,10 @@ final class PiiRedactorServiceProvider extends ServiceProvider
         $this->app->singleton(RedactionStrategyFactory::class, fn (Application $app): RedactionStrategyFactory => new RedactionStrategyFactory(
             $app['config'],
             $app->make(TokenStore::class),
-            $app->make(TenantResolver::class),
+            // Lazy proxy, not the captured instance — the factory + strategy are
+            // singletons, so a scoped/per-request host resolver must be re-read
+            // on every call (see ContainerTenantResolver).
+            new ContainerTenantResolver($app),
         ));
 
         $this->app->singleton(RedactionStrategy::class, fn (Application $app): RedactionStrategy => $app
@@ -223,7 +227,9 @@ final class PiiRedactorServiceProvider extends ServiceProvider
         $config = $app['config'];
         $driver = (string) $config->get('pii-redactor.token_store.driver', 'memory');
 
-        $tenants = $app->make(TenantResolver::class);
+        // Lazy proxy so the singleton stores re-resolve a scoped/per-request
+        // host resolver on every call instead of freezing the first instance.
+        $tenants = new ContainerTenantResolver($app);
         $legacyTenantId = (string) $config->get('pii-redactor.tenant.default_id', 'default');
 
         return match ($driver) {
