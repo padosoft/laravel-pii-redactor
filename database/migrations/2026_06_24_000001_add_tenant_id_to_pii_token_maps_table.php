@@ -49,7 +49,7 @@ return new class extends Migration
         Schema::table('pii_token_maps', function (Blueprint $table): void {
             try {
                 $table->unique(['tenant_id', 'token'], 'pii_token_maps_tenant_token_unique');
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 // Already exists (re-run after partial failure, or consolidated schema) — fine.
             }
         });
@@ -71,7 +71,7 @@ return new class extends Migration
         Schema::table('pii_token_maps', function (Blueprint $table): void {
             try {
                 $table->unique('token', 'pii_token_maps_token_unique');
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 // Already exists — fine.
             }
         });
