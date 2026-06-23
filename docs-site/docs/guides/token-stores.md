@@ -23,3 +23,39 @@ description: Reversible token map storage.
 4. **Publish migration if using database**
    Run `php artisan vendor:publish --tag=pii-redactor-migrations && php artisan migrate`.
 :::
+
+## Tenant isolation (v1.4)
+
+The reversible vault is **tenant-aware**. The `database` driver scopes every
+read/write by the active tenant (`UNIQUE(tenant_id, token)`), and
+`TokeniseStrategy` namespaces its salt per tenant — so the **same PII value
+yields a different token per tenant** and a token can only ever be detokenised
+within its own tenant. Cross-tenant reverse-identification is a GDPR
+catastrophe; this boundary makes a single shared `pii_token_maps` table safe
+across tenants.
+
+- **Single-tenant hosts** notice nothing: the bundled `DefaultTenantResolver`
+  uses one constant id (`pii-redactor.tenant.default_id`, env
+  `PII_REDACTOR_DEFAULT_TENANT_ID`, default `default`). Behaviour is identical
+  to v1.3.
+- **Multi-tenant hosts** bind their own resolver so the vault follows the
+  request's tenant:
+
+  ```php
+  use Padosoft\PiiRedactor\Contracts\TenantResolver;
+
+  $this->app->bind(TenantResolver::class, fn () => new class implements TenantResolver {
+      public function currentTenantId(): string
+      {
+          return app(\App\Support\TenantContext::class)->current();
+      }
+  });
+  ```
+
+  The salt is resolved **per `apply()` call**, so a singleton strategy stays
+  correct even when one queue worker processes jobs for several tenants.
+- **Upgrade:** run the `add_tenant_id_to_pii_token_maps_table` migration — it
+  adds `tenant_id` (existing rows backfill to `default`) and replaces
+  `UNIQUE(token)` with `UNIQUE(tenant_id, token)`.
+- **Scoping:** `clear()` wipes only the active tenant's vault (never global);
+  `dump()` and `load()` are likewise scoped to the active tenant.
