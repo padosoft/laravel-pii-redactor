@@ -16,9 +16,7 @@ use Padosoft\PiiRedactor\Contracts\TenantResolver;
  */
 final class DefaultTenantResolver implements TenantResolver
 {
-    public function __construct(private readonly string $tenantId = 'default')
-    {
-    }
+    public function __construct(private readonly string $tenantId = 'default') {}
 
     public function currentTenantId(): string
     {

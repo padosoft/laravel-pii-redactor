@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Contracts;
 
+use Padosoft\PiiRedactor\Tenancy\DefaultTenantResolver;
+
 /**
  * Resolves the active tenant for the reversible token vault.
  *
  * The package is tenant-agnostic by default (single-tenant hosts never
- * notice): the bundled {@see \Padosoft\PiiRedactor\Tenancy\DefaultTenantResolver}
+ * notice): the bundled {@see DefaultTenantResolver}
  * always returns the configured default id. A multi-tenant host binds its
  * own implementation (e.g. over its TenantContext) so the token vault is
  * isolated per tenant — the SAME PII value in two tenants yields two

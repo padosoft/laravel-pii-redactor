@@ -41,7 +41,7 @@ return new class extends Migration
         Schema::table('pii_token_maps', function (Blueprint $table): void {
             try {
                 $table->dropUnique('pii_token_maps_token_unique');
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 // Already dropped or never existed under that name — fine.
             }
         });
@@ -60,7 +60,7 @@ return new class extends Migration
         Schema::table('pii_token_maps', function (Blueprint $table): void {
             try {
                 $table->dropUnique('pii_token_maps_tenant_token_unique');
-            } catch (\Throwable) {
+            } catch (Throwable) {
             }
         });
 
