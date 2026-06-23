@@ -40,25 +40,23 @@ return new class extends Migration
             });
         }
 
-        // Swap the global unique for the per-tenant composite unique. The old
-        // index was auto-named `pii_token_maps_token_unique` by the v1.3
-        // create migration. Wrap the drop so a host that already lacks it
-        // (manual edit / fresh consolidated schema) does not fail the upgrade.
-        Schema::table('pii_token_maps', function (Blueprint $table): void {
-            try {
+        // Swap the global unique for the per-tenant composite unique. Guard with
+        // schema INTROSPECTION (not a try/catch) — Blueprint only QUEUES the DDL
+        // inside the closure; Schema::table() runs it AFTER the closure returns,
+        // so a try/catch around the queue call never catches the execution-time
+        // error. hasIndex() checks make this idempotent on the manual /
+        // consolidated-schema path where the old index is absent or renamed.
+        if (Schema::hasIndex('pii_token_maps', 'pii_token_maps_token_unique')) {
+            Schema::table('pii_token_maps', function (Blueprint $table): void {
                 $table->dropUnique('pii_token_maps_token_unique');
-            } catch (Throwable) {
-                // Already dropped or never existed under that name — fine.
-            }
-        });
+            });
+        }
 
-        Schema::table('pii_token_maps', function (Blueprint $table): void {
-            try {
+        if (! Schema::hasIndex('pii_token_maps', 'pii_token_maps_tenant_token_unique')) {
+            Schema::table('pii_token_maps', function (Blueprint $table): void {
                 $table->unique(['tenant_id', 'token'], 'pii_token_maps_tenant_token_unique');
-            } catch (Throwable) {
-                // Already exists (re-run after partial failure, or consolidated schema) — fine.
-            }
-        });
+            });
+        }
     }
 
     public function down(): void
@@ -67,20 +65,17 @@ return new class extends Migration
             return;
         }
 
-        Schema::table('pii_token_maps', function (Blueprint $table): void {
-            try {
+        if (Schema::hasIndex('pii_token_maps', 'pii_token_maps_tenant_token_unique')) {
+            Schema::table('pii_token_maps', function (Blueprint $table): void {
                 $table->dropUnique('pii_token_maps_tenant_token_unique');
-            } catch (Throwable) {
-            }
-        });
+            });
+        }
 
-        Schema::table('pii_token_maps', function (Blueprint $table): void {
-            try {
+        if (! Schema::hasIndex('pii_token_maps', 'pii_token_maps_token_unique')) {
+            Schema::table('pii_token_maps', function (Blueprint $table): void {
                 $table->unique('token', 'pii_token_maps_token_unique');
-            } catch (Throwable) {
-                // Already exists — fine.
-            }
-        });
+            });
+        }
 
         if (Schema::hasColumn('pii_token_maps', 'tenant_id')) {
             Schema::table('pii_token_maps', function (Blueprint $table): void {

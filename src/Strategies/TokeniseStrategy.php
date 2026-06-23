@@ -75,7 +75,11 @@ final class TokeniseStrategy implements RedactionStrategy
             );
         }
 
-        $this->store = $store ?? new InMemoryTokenStore;
+        // Scope the fallback store with the SAME resolver — otherwise a direct
+        // `new TokeniseStrategy(..., tenants: $resolver)` with no explicit store
+        // would tokenise per-tenant but persist into an UNSCOPED memory map,
+        // re-opening a cross-tenant detokenise leak outside the provider path.
+        $this->store = $store ?? new InMemoryTokenStore($tenants);
         $this->tenants = $tenants;
     }
 
