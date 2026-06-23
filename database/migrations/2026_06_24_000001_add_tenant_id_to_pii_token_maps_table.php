@@ -28,9 +28,15 @@ return new class extends Migration
             return;
         }
 
+        // Backfill existing rows under the CONFIGURED legacy tenant id — not a
+        // hard-coded 'default' — so that when a host runs with
+        // PII_REDACTOR_DEFAULT_TENANT_ID set to something else, the store
+        // (which queries by that configured id) still finds its pre-v1.4 rows.
+        $legacyTenantId = (string) (config('pii-redactor.tenant.default_id') ?: 'default');
+
         if (! Schema::hasColumn('pii_token_maps', 'tenant_id')) {
-            Schema::table('pii_token_maps', function (Blueprint $table): void {
-                $table->string('tenant_id', 64)->default('default')->after('id')->index();
+            Schema::table('pii_token_maps', function (Blueprint $table) use ($legacyTenantId): void {
+                $table->string('tenant_id', 64)->default($legacyTenantId)->after('id')->index();
             });
         }
 
