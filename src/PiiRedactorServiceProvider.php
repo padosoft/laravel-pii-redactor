@@ -9,6 +9,7 @@ use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\PiiRedactor\Console\PiiScanCommand;
+use Padosoft\PiiRedactor\Contracts\TenantResolver;
 use Padosoft\PiiRedactor\CustomRules\CustomRuleDetector;
 use Padosoft\PiiRedactor\CustomRules\YamlCustomRuleLoader;
 use Padosoft\PiiRedactor\Detectors\Detector;
@@ -21,6 +22,7 @@ use Padosoft\PiiRedactor\Packs\DetectorPackRegistry;
 use Padosoft\PiiRedactor\Packs\PackContract;
 use Padosoft\PiiRedactor\Strategies\RedactionStrategy;
 use Padosoft\PiiRedactor\Strategies\RedactionStrategyFactory;
+use Padosoft\PiiRedactor\Tenancy\DefaultTenantResolver;
 use Padosoft\PiiRedactor\TokenStore\CacheTokenStore;
 use Padosoft\PiiRedactor\TokenStore\DatabaseTokenStore;
 use Padosoft\PiiRedactor\TokenStore\InMemoryTokenStore;
@@ -40,11 +42,20 @@ final class PiiRedactorServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/pii-redactor.php', 'pii-redactor');
 
+        // Tenancy boundary for the reversible vault. `bindIf` so a multi-tenant
+        // host that bound its own resolver BEFORE this provider keeps it; the
+        // bundled default (single constant tenant) preserves single-tenant
+        // behaviour byte-for-byte.
+        $this->app->bindIf(TenantResolver::class, fn (Application $app): TenantResolver => new DefaultTenantResolver(
+            (string) $app['config']->get('pii-redactor.tenant.default_id', 'default'),
+        ), true);
+
         $this->app->singleton(TokenStore::class, fn (Application $app): TokenStore => $this->buildTokenStore($app));
 
         $this->app->singleton(RedactionStrategyFactory::class, fn (Application $app): RedactionStrategyFactory => new RedactionStrategyFactory(
             $app['config'],
             $app->make(TokenStore::class),
+            $app->make(TenantResolver::class),
         ));
 
         $this->app->singleton(RedactionStrategy::class, fn (Application $app): RedactionStrategy => $app
@@ -217,6 +228,7 @@ final class PiiRedactorServiceProvider extends ServiceProvider
             'database' => new DatabaseTokenStore(
                 connection: $this->stringOrNull($config->get('pii-redactor.token_store.database.connection')),
                 table: (string) $config->get('pii-redactor.token_store.database.table', 'pii_token_maps'),
+                tenants: $app->make(TenantResolver::class),
             ),
             'cache' => new CacheTokenStore(
                 cache: $this->resolveCacheRepository($app, $config),

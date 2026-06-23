@@ -5,15 +5,22 @@ declare(strict_types=1);
 namespace Padosoft\PiiRedactor\Strategies;
 
 use Illuminate\Contracts\Config\Repository;
+use Padosoft\PiiRedactor\Contracts\TenantResolver;
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
+use Padosoft\PiiRedactor\Tenancy\DefaultTenantResolver;
 use Padosoft\PiiRedactor\TokenStore\TokenStore;
 
 final class RedactionStrategyFactory
 {
+    private readonly TenantResolver $tenants;
+
     public function __construct(
         private readonly Repository $config,
         private readonly TokenStore $tokenStore,
-    ) {}
+        ?TenantResolver $tenants = null,
+    ) {
+        $this->tenants = $tenants ?? new DefaultTenantResolver;
+    }
 
     /**
      * @return list<string>
@@ -37,6 +44,7 @@ final class RedactionStrategyFactory
                 salt: $this->requireSalt($this->config->get('pii-redactor.salt')),
                 idHexLength: (int) $this->config->get('pii-redactor.token_hex_length', 16),
                 store: $this->tokenStore,
+                tenants: $this->tenants,
             ),
             'drop' => new DropStrategy,
             default => throw new StrategyException(sprintf(

@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-24
+
+### Added — tenant-aware reversible vault
+
+- **`Padosoft\PiiRedactor\Contracts\TenantResolver`** + bundled **`Tenancy\DefaultTenantResolver`** — the boundary that tells the vault "whose tenant am I touching now". Single-tenant hosts use the default (a constant id from `pii-redactor.tenant.default_id`, env `PII_REDACTOR_DEFAULT_TENANT_ID`); a multi-tenant host binds its own resolver (e.g. over its TenantContext) and the service provider's `bindIf` keeps it.
+- **Per-tenant token isolation in `DatabaseTokenStore`** — every `put`/`get`/`has`/`clear`/`dump`/`load` is scoped to the resolved tenant. A token minted in one tenant's vault can never be read, dumped, or cleared from another; `clear()` wipes only the active tenant.
+- **Per-tenant salt in `TokeniseStrategy`** — when a resolver is wired the base salt is namespaced by the active tenant id (resolved per `apply()` call, so a singleton strategy stays correct across tenants in one queue worker). The SAME PII value yields a DIFFERENT token per tenant, eliminating cross-tenant correlation.
+- Migration `add_tenant_id_to_pii_token_maps_table` — adds `tenant_id` (backfills to `'default'`) and replaces `UNIQUE(token)` with `UNIQUE(tenant_id, token)`. Idempotent + driver-tolerant.
+
+### Backward compatibility
+
+- Fully additive (R43): with no resolver bound, behaviour is identical to v1.3 — one constant tenant, deterministic tokens. Existing rows backfill to `'default'`.
+
 ## [1.2.0] - 2026-05-06
 
 ### Added — admin-ready headless API surface
