@@ -223,17 +223,22 @@ final class PiiRedactorServiceProvider extends ServiceProvider
         $config = $app['config'];
         $driver = (string) $config->get('pii-redactor.token_store.driver', 'memory');
 
+        $tenants = $app->make(TenantResolver::class);
+        $legacyTenantId = (string) $config->get('pii-redactor.tenant.default_id', 'default');
+
         return match ($driver) {
-            'memory' => new InMemoryTokenStore,
+            'memory' => new InMemoryTokenStore($tenants),
             'database' => new DatabaseTokenStore(
                 connection: $this->stringOrNull($config->get('pii-redactor.token_store.database.connection')),
                 table: (string) $config->get('pii-redactor.token_store.database.table', 'pii_token_maps'),
-                tenants: $app->make(TenantResolver::class),
+                tenants: $tenants,
             ),
             'cache' => new CacheTokenStore(
                 cache: $this->resolveCacheRepository($app, $config),
                 prefix: (string) $config->get('pii-redactor.token_store.cache.prefix', 'pii_token:'),
                 ttlSeconds: $this->intOrNull($config->get('pii-redactor.token_store.cache.ttl')),
+                tenants: $tenants,
+                legacyTenantId: $legacyTenantId,
             ),
             default => throw new StrategyException(sprintf(
                 'Unknown TokenStore driver [%s]. Valid: memory, database, cache.',

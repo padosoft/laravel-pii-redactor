@@ -26,18 +26,22 @@ description: Reversible token map storage.
 
 ## Tenant isolation (v1.4)
 
-The reversible vault is **tenant-aware**. The `database` driver scopes every
-read/write by the active tenant (`UNIQUE(tenant_id, token)`), and
-`TokeniseStrategy` namespaces its salt per tenant — so the **same PII value
-yields a different token per tenant** and a token can only ever be detokenised
-within its own tenant. Cross-tenant reverse-identification is a GDPR
-catastrophe; this boundary makes a single shared `pii_token_maps` table safe
-across tenants.
+The reversible vault is **tenant-aware on every driver** — `database` (rows
+scoped by `tenant_id`, `UNIQUE(tenant_id, token)`), `memory` (per-tenant
+buckets), and `cache` (per-tenant key namespace). `TokeniseStrategy` also
+namespaces its salt per tenant, so the **same PII value yields a different
+token per tenant** and a token can only ever be detokenised within its own
+tenant — including via `detokeniseString()`, which never resolves a foreign
+tenant's literal. Cross-tenant reverse-identification is a GDPR catastrophe;
+this boundary makes a single shared store safe across tenants.
 
 - **Single-tenant hosts** notice nothing: the bundled `DefaultTenantResolver`
   uses one constant id (`pii-redactor.tenant.default_id`, env
-  `PII_REDACTOR_DEFAULT_TENANT_ID`, default `default`). Behaviour is identical
-  to v1.3.
+  `PII_REDACTOR_DEFAULT_TENANT_ID`, default `default`). The **legacy/default
+  tenant keeps the pre-v1.4 representation** — bare salt + unsegmented cache
+  keys — so an upgrade mints byte-for-byte the same `[tok:...]` ids and finds
+  its existing cache/DB rows. Only non-default tenants get a namespaced salt +
+  segmented keys.
 - **Multi-tenant hosts** bind their own resolver so the vault follows the
   request's tenant:
 

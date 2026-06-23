@@ -62,6 +62,7 @@ final class TokeniseStrategy implements RedactionStrategy
         private readonly int $idHexLength = 16,
         ?TokenStore $store = null,
         ?TenantResolver $tenants = null,
+        private readonly string $legacyTenantId = 'default',
     ) {
         if ($salt === '') {
             throw new StrategyException(
@@ -91,7 +92,17 @@ final class TokeniseStrategy implements RedactionStrategy
             return $this->salt;
         }
 
-        return $this->salt.':'.$this->tenants->currentTenantId();
+        $tenantId = $this->tenants->currentTenantId();
+
+        // The legacy/default tenant keeps the pre-v1.4 BARE salt, so a
+        // single-tenant upgrade (and a multi-tenant host's default tenant)
+        // mints byte-for-byte the same `[tok:...]` ids as before. Only a
+        // NON-default tenant namespaces the salt.
+        if ($tenantId === $this->legacyTenantId) {
+            return $this->salt;
+        }
+
+        return $this->salt.':'.$tenantId;
     }
 
     public function name(): string

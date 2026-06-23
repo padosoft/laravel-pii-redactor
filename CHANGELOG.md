@@ -11,13 +11,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 ### Added — tenant-aware reversible vault
 
 - **`Padosoft\PiiRedactor\Contracts\TenantResolver`** + bundled **`Tenancy\DefaultTenantResolver`** — the boundary that tells the vault "whose tenant am I touching now". Single-tenant hosts use the default (a constant id from `pii-redactor.tenant.default_id`, env `PII_REDACTOR_DEFAULT_TENANT_ID`); a multi-tenant host binds its own resolver (e.g. over its TenantContext) and the service provider's `bindIf` keeps it.
-- **Per-tenant token isolation in `DatabaseTokenStore`** — every `put`/`get`/`has`/`clear`/`dump`/`load` is scoped to the resolved tenant. A token minted in one tenant's vault can never be read, dumped, or cleared from another; `clear()` wipes only the active tenant.
-- **Per-tenant salt in `TokeniseStrategy`** — when a resolver is wired the base salt is namespaced by the active tenant id (resolved per `apply()` call, so a singleton strategy stays correct across tenants in one queue worker). The SAME PII value yields a DIFFERENT token per tenant, eliminating cross-tenant correlation.
+- **Per-tenant token isolation across ALL drivers** — `DatabaseTokenStore` (rows scoped by `tenant_id`), `InMemoryTokenStore` (per-tenant buckets) and `CacheTokenStore` (per-tenant key namespace) all scope every `put`/`get`/`has`/`clear`/`dump`/`load` to the resolved tenant. A token minted in one tenant's vault can never be read, dumped, or cleared from another (closing a `detokeniseString` cross-tenant leak on the memory/cache drivers); `clear()` wipes only the active tenant.
+- **Per-tenant salt in `TokeniseStrategy`** — when a resolver is wired a NON-default tenant namespaces the base salt by its id (resolved per `apply()` call, so a singleton strategy stays correct across tenants in one queue worker). The SAME PII value yields a DIFFERENT token per tenant, eliminating cross-tenant correlation.
 - Migration `add_tenant_id_to_pii_token_maps_table` — adds `tenant_id` (backfills to `'default'`) and replaces `UNIQUE(token)` with `UNIQUE(tenant_id, token)`. Idempotent + driver-tolerant.
 
 ### Backward compatibility
 
-- Fully additive (R43): with no resolver bound, behaviour is identical to v1.3 — one constant tenant, deterministic tokens. Existing rows backfill to `'default'`.
+- Fully additive (R43): with no resolver bound, behaviour is identical to v1.3. The **legacy/default tenant** (`pii-redactor.tenant.default_id`, default `default`) keeps the pre-v1.4 representation — BARE salt + UNSEGMENTED cache keys — so a single-tenant upgrade (and a multi-tenant host's default tenant) mints byte-for-byte the same `[tok:...]` ids and finds its existing cache/DB rows. Only non-default tenants get a namespaced salt + segmented keys. Existing rows backfill to `'default'`.
 
 ## [1.2.0] - 2026-05-06
 

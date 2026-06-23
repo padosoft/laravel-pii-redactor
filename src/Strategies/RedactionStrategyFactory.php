@@ -45,6 +45,7 @@ final class RedactionStrategyFactory
                 idHexLength: (int) $this->config->get('pii-redactor.token_hex_length', 16),
                 store: $this->tokenStore,
                 tenants: $this->tenants,
+                legacyTenantId: (string) $this->config->get('pii-redactor.tenant.default_id', 'default'),
             ),
             'drop' => new DropStrategy,
             default => throw new StrategyException(sprintf(

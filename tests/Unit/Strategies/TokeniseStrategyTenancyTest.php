@@ -98,6 +98,47 @@ final class TokeniseStrategyTenancyTest extends TestCase
         $this->assertSame('mario.rossi@example.com', $strategy->detokenise($token));
     }
 
+    public function test_default_tenant_mints_the_same_token_as_no_resolver(): void
+    {
+        // P2 compat: a single-tenant upgrade (default resolver, default id)
+        // must mint byte-for-byte the pre-v1.4 token — the legacy tenant uses
+        // the BARE salt, not `salt:default`.
+        $legacy = new TokeniseStrategy('base-salt', 16, new InMemoryTokenStore);
+
+        $defaultResolver = new class implements TenantResolver
+        {
+            public function currentTenantId(): string
+            {
+                return 'default';
+            }
+        };
+        $tenantAware = new TokeniseStrategy('base-salt', 16, new InMemoryTokenStore($defaultResolver), $defaultResolver, 'default');
+
+        $this->assertSame(
+            $legacy->apply('mario.rossi@example.com', 'email'),
+            $tenantAware->apply('mario.rossi@example.com', 'email'),
+            'the default/legacy tenant must keep the pre-v1.4 token id',
+        );
+    }
+
+    public function test_in_memory_store_isolates_tenants(): void
+    {
+        // P1: the process-local memory driver must also be tenant-scoped, or a
+        // long-lived multi-tenant worker leaks tenant A's PII when tenant B
+        // detokenises the same literal.
+        /** @var TenantResolver $resolver */
+        $resolver = $this->tenant;
+        $strategy = new TokeniseStrategy('base-salt', 16, new InMemoryTokenStore($resolver), $resolver);
+
+        $this->tenant->id = 'tenant-a';
+        $token = $strategy->apply('mario.rossi@example.com', 'email');
+        $this->assertSame('mario.rossi@example.com', $strategy->detokenise($token));
+
+        $this->tenant->id = 'tenant-b';
+        $this->assertNull($strategy->detokenise($token));
+        $this->assertSame('X '.$token.' Y', $strategy->detokeniseString('X '.$token.' Y'));
+    }
+
     public function test_without_a_resolver_behaviour_is_unchanged(): void
     {
         // R43 backward-compat: no resolver → single deterministic salt.
