@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\PiiRedactor\TokenStore;
 
 use Illuminate\Contracts\Cache\Repository;
+use Padosoft\PiiRedactor\Contracts\TenantResolver;
 
 /**
  * Cache-backed TokenStore — uses Laravel's cache abstraction so deployments
@@ -47,6 +48,8 @@ final class CacheTokenStore implements TokenStore
         private readonly Repository $cache,
         private readonly string $prefix = 'pii_token:',
         private readonly ?int $ttlSeconds = null,
+        private readonly ?TenantResolver $tenants = null,
+        private readonly string $legacyTenantId = 'default',
     ) {}
 
     public function put(string $token, string $original): void
@@ -108,14 +111,34 @@ final class CacheTokenStore implements TokenStore
         }
     }
 
+    /**
+     * Per-tenant cache namespace. The legacy/default tenant (and the
+     * no-resolver case) keeps the pre-v1.4 UNSEGMENTED key format so an
+     * existing cache deployment finds its tokens after upgrade; only a
+     * NON-default tenant gets a `<tenant>:` segment, isolating its vault.
+     */
+    private function namespace(): string
+    {
+        if ($this->tenants === null) {
+            return $this->prefix;
+        }
+
+        $tenantId = $this->tenants->currentTenantId();
+        if ($tenantId === $this->legacyTenantId) {
+            return $this->prefix;
+        }
+
+        return $this->prefix.$tenantId.':';
+    }
+
     private function keyFor(string $token): string
     {
-        return $this->prefix.hash('sha256', $token);
+        return $this->namespace().hash('sha256', $token);
     }
 
     private function indexKey(): string
     {
-        return $this->prefix.'__index';
+        return $this->namespace().'__index';
     }
 
     /** @return list<string> */

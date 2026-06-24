@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\PiiRedactor\Strategies;
 
+use Padosoft\PiiRedactor\Contracts\TenantResolver;
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
 use Padosoft\PiiRedactor\TokenStore\DatabaseTokenStore;
 use Padosoft\PiiRedactor\TokenStore\InMemoryTokenStore;
@@ -54,10 +55,14 @@ final class TokeniseStrategy implements RedactionStrategy
      */
     private array $mintedThisProcess = [];
 
+    private readonly ?TenantResolver $tenants;
+
     public function __construct(
         private readonly string $salt,
         private readonly int $idHexLength = 16,
         ?TokenStore $store = null,
+        ?TenantResolver $tenants = null,
+        private readonly string $legacyTenantId = 'default',
     ) {
         if ($salt === '') {
             throw new StrategyException(
@@ -70,7 +75,38 @@ final class TokeniseStrategy implements RedactionStrategy
             );
         }
 
-        $this->store = $store ?? new InMemoryTokenStore;
+        // Scope the fallback store with the SAME resolver — otherwise a direct
+        // `new TokeniseStrategy(..., tenants: $resolver)` with no explicit store
+        // would tokenise per-tenant but persist into an UNSCOPED memory map,
+        // re-opening a cross-tenant detokenise leak outside the provider path.
+        $this->store = $store ?? new InMemoryTokenStore($tenants);
+        $this->tenants = $tenants;
+    }
+
+    /**
+     * The effective per-call salt. When a {@see TenantResolver} is wired the
+     * base salt is namespaced by the ACTIVE tenant id, so the same PII value
+     * yields a DIFFERENT token per tenant (no cross-tenant correlation) — and
+     * it is resolved per call, not baked at build time, so a single
+     * (singleton) strategy stays correct across tenants in one queue worker.
+     */
+    private function effectiveSalt(): string
+    {
+        if ($this->tenants === null) {
+            return $this->salt;
+        }
+
+        $tenantId = $this->tenants->currentTenantId();
+
+        // The legacy/default tenant keeps the pre-v1.4 BARE salt, so a
+        // single-tenant upgrade (and a multi-tenant host's default tenant)
+        // mints byte-for-byte the same `[tok:...]` ids as before. Only a
+        // NON-default tenant namespaces the salt.
+        if ($tenantId === $this->legacyTenantId) {
+            return $this->salt;
+        }
+
+        return $this->salt.':'.$tenantId;
     }
 
     public function name(): string
@@ -83,7 +119,7 @@ final class TokeniseStrategy implements RedactionStrategy
         // Pure function of (salt, detector, original): same value always
         // hashes to the same id regardless of encounter order or prior
         // calls, so tokens are stable across process boundaries.
-        $idHex = substr(hash('sha256', $this->salt.':'.$detectorName.':'.$original), 0, $this->idHexLength);
+        $idHex = substr(hash('sha256', $this->effectiveSalt().':'.$detectorName.':'.$original), 0, $this->idHexLength);
         $token = '[tok:'.$detectorName.':'.$idHex.']';
 
         // Fast path: this process already minted this exact token, so

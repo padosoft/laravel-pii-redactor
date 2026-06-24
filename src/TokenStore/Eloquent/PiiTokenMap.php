@@ -19,6 +19,7 @@ use Illuminate\Support\Carbon;
  * `[tok:<detector>:<hex>]` strings every time.
  *
  * @property int $id
+ * @property string $tenant_id
  * @property string $token
  * @property string $original
  * @property string $detector
@@ -33,7 +34,7 @@ class PiiTokenMap extends Model
     /**
      * @var list<string>
      */
-    protected $fillable = ['token', 'original', 'detector'];
+    protected $fillable = ['tenant_id', 'token', 'original', 'detector'];
 
     public $incrementing = true;
 

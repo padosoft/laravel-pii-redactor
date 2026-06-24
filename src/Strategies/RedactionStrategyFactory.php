@@ -5,15 +5,40 @@ declare(strict_types=1);
 namespace Padosoft\PiiRedactor\Strategies;
 
 use Illuminate\Contracts\Config\Repository;
+use Padosoft\PiiRedactor\Contracts\TenantResolver;
 use Padosoft\PiiRedactor\Exceptions\StrategyException;
+use Padosoft\PiiRedactor\Tenancy\DefaultTenantResolver;
 use Padosoft\PiiRedactor\TokenStore\TokenStore;
 
 final class RedactionStrategyFactory
 {
+    private readonly TenantResolver $tenants;
+
     public function __construct(
         private readonly Repository $config,
         private readonly TokenStore $tokenStore,
-    ) {}
+        ?TenantResolver $tenants = null,
+    ) {
+        // The fallback resolver must report the CONFIGURED legacy tenant id —
+        // not a hard-coded 'default' — so a direct factory user (e.g. an admin
+        // preview) with a customised `tenant.default_id` still mints the
+        // v1.3-compatible BARE token (currentTenantId === legacyTenantId).
+        $this->tenants = $tenants ?? new DefaultTenantResolver($this->legacyTenantId());
+    }
+
+    /**
+     * The configured legacy tenant id, normalised the SAME way everywhere
+     * (explicit null/'' check, "0" preserved) so the fallback resolver and the
+     * value passed to TokeniseStrategy always agree — otherwise an empty
+     * `default_id` would make the resolver report 'default' while the strategy
+     * received '' and lost the bare-token compat.
+     */
+    private function legacyTenantId(): string
+    {
+        $raw = $this->config->get('pii-redactor.tenant.default_id');
+
+        return is_string($raw) && $raw !== '' ? $raw : 'default';
+    }
 
     /**
      * @return list<string>
@@ -37,6 +62,8 @@ final class RedactionStrategyFactory
                 salt: $this->requireSalt($this->config->get('pii-redactor.salt')),
                 idHexLength: (int) $this->config->get('pii-redactor.token_hex_length', 16),
                 store: $this->tokenStore,
+                tenants: $this->tenants,
+                legacyTenantId: $this->legacyTenantId(),
             ),
             'drop' => new DropStrategy,
             default => throw new StrategyException(sprintf(

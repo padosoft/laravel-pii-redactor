@@ -255,6 +255,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Tenancy (v1.4)
+    |--------------------------------------------------------------------------
+    |
+    | The reversible token vault is tenant-aware: the database driver scopes
+    | every row by tenant id (UNIQUE(tenant_id, token)) and the tokenise
+    | strategy namespaces its salt per tenant, so the same PII yields a
+    | different token per tenant and a token only ever resolves within its
+    | own tenant. Single-tenant hosts keep using the constant id below; a
+    | multi-tenant host binds its own Padosoft\PiiRedactor\Contracts\TenantResolver
+    | (e.g. over its TenantContext) and this value is ignored.
+    |
+    */
+    'tenant' => [
+        'default_id' => env('PII_REDACTOR_DEFAULT_TENANT_ID', 'default'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Custom-rule YAML packs (v0.3 — manual registration; auto-register lands in v1.0)
     |--------------------------------------------------------------------------
     |

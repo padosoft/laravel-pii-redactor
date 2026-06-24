@@ -57,8 +57,11 @@ final class PartitaIvaDetector implements Detector
             return false;
         }
 
-        // 00000000000 is an obvious zero-checksum sentinel — never a real VAT.
-        if ($piva === '00000000000') {
+        // All-zeros is an obvious sentinel — never a real VAT. Expressed as
+        // "has no digit 1-9" rather than `=== '00000000000'` so a stricter
+        // static analyser can't narrow the (genuinely possible) all-zeros
+        // ctype_digit string away as an impossible comparison.
+        if (preg_match('/[1-9]/', $piva) !== 1) {
             return false;
         }
 

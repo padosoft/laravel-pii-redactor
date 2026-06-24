@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Padosoft\PiiRedactor\TokenStore;
 
 use Illuminate\Database\Eloquent\Builder;
+use Padosoft\PiiRedactor\Contracts\TenantResolver;
+use Padosoft\PiiRedactor\Tenancy\DefaultTenantResolver;
 use Padosoft\PiiRedactor\TokenStore\Eloquent\PiiTokenMap;
 
 /**
@@ -34,15 +36,22 @@ use Padosoft\PiiRedactor\TokenStore\Eloquent\PiiTokenMap;
  */
 final class DatabaseTokenStore implements TokenStore
 {
+    private readonly TenantResolver $tenants;
+
     public function __construct(
         private readonly ?string $connection = null,
         private readonly string $table = 'pii_token_maps',
-    ) {}
+        ?TenantResolver $tenants = null,
+    ) {
+        $this->tenants = $tenants ?? new DefaultTenantResolver;
+    }
 
     public function put(string $token, string $original): void
     {
+        $tenantId = $this->tenants->currentTenantId();
+
         $this->newQuery()->updateOrCreate(
-            ['token' => $token],
+            ['tenant_id' => $tenantId, 'token' => $token],
             [
                 'original' => $original,
                 'detector' => $this->parseDetector($token),
@@ -53,6 +62,7 @@ final class DatabaseTokenStore implements TokenStore
     public function get(string $token): ?string
     {
         $row = $this->newQuery()
+            ->where('tenant_id', $this->tenants->currentTenantId())
             ->where('token', $token)
             ->value('original');
 
@@ -62,6 +72,7 @@ final class DatabaseTokenStore implements TokenStore
     public function has(string $token): bool
     {
         return $this->newQuery()
+            ->where('tenant_id', $this->tenants->currentTenantId())
             ->where('token', $token)
             ->exists();
     }
@@ -69,7 +80,11 @@ final class DatabaseTokenStore implements TokenStore
     public function clear(): void
     {
         // Operator-only path; never invoked from the hot redaction loop.
-        $this->newQuery()->truncate();
+        // Tenant-scoped: clears ONLY the active tenant's vault (a global
+        // truncate would wipe every tenant's reverse map).
+        $this->newQuery()
+            ->where('tenant_id', $this->tenants->currentTenantId())
+            ->delete();
     }
 
     /**
@@ -84,6 +99,7 @@ final class DatabaseTokenStore implements TokenStore
         // No explicit orderBy needed: chunkById() applies its own
         // ordering on the primary key via forPageAfterId() internally.
         $this->newQuery()
+            ->where('tenant_id', $this->tenants->currentTenantId())
             ->chunkById(500, function ($rows) use (&$out): void {
                 foreach ($rows as $row) {
                     $out[(string) $row->token] = (string) $row->original;
@@ -112,9 +128,11 @@ final class DatabaseTokenStore implements TokenStore
             return;
         }
 
+        $tenantId = $this->tenants->currentTenantId();
         $rows = [];
         foreach ($map as $token => $original) {
             $rows[] = [
+                'tenant_id' => $tenantId,
                 'token' => (string) $token,
                 'original' => (string) $original,
                 'detector' => $this->parseDetector((string) $token),
