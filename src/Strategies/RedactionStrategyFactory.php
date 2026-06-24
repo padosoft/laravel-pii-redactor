@@ -23,11 +23,21 @@ final class RedactionStrategyFactory
         // not a hard-coded 'default' — so a direct factory user (e.g. an admin
         // preview) with a customised `tenant.default_id` still mints the
         // v1.3-compatible BARE token (currentTenantId === legacyTenantId).
-        $rawDefault = $config->get('pii-redactor.tenant.default_id');
-        $this->tenants = $tenants ?? new DefaultTenantResolver(
-            // Explicit null/'' check (not `?:`) so the valid id "0" is preserved.
-            is_string($rawDefault) && $rawDefault !== '' ? $rawDefault : 'default',
-        );
+        $this->tenants = $tenants ?? new DefaultTenantResolver($this->legacyTenantId());
+    }
+
+    /**
+     * The configured legacy tenant id, normalised the SAME way everywhere
+     * (explicit null/'' check, "0" preserved) so the fallback resolver and the
+     * value passed to TokeniseStrategy always agree — otherwise an empty
+     * `default_id` would make the resolver report 'default' while the strategy
+     * received '' and lost the bare-token compat.
+     */
+    private function legacyTenantId(): string
+    {
+        $raw = $this->config->get('pii-redactor.tenant.default_id');
+
+        return is_string($raw) && $raw !== '' ? $raw : 'default';
     }
 
     /**
@@ -53,7 +63,7 @@ final class RedactionStrategyFactory
                 idHexLength: (int) $this->config->get('pii-redactor.token_hex_length', 16),
                 store: $this->tokenStore,
                 tenants: $this->tenants,
-                legacyTenantId: (string) $this->config->get('pii-redactor.tenant.default_id', 'default'),
+                legacyTenantId: $this->legacyTenantId(),
             ),
             'drop' => new DropStrategy,
             default => throw new StrategyException(sprintf(

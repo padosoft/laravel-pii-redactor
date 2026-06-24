@@ -42,6 +42,29 @@ final class RedactionStrategyFactoryTenancyTest extends TestCase
         );
     }
 
+    public function test_empty_default_id_falls_back_to_bare_tokens(): void
+    {
+        // An explicitly-empty default_id normalises to 'default' on BOTH the
+        // fallback resolver and the legacyTenantId passed to the strategy, so
+        // they agree and the token stays bare (no `salt:default`).
+        $config = new Repository([
+            'pii-redactor' => [
+                'strategy' => 'tokenise',
+                'salt' => 'base-salt',
+                'token_hex_length' => 16,
+                'tenant' => ['default_id' => ''],
+            ],
+        ]);
+
+        $strategy = (new RedactionStrategyFactory($config, new InMemoryTokenStore))->make('tokenise');
+        $bare = new TokeniseStrategy('base-salt', 16, new InMemoryTokenStore);
+
+        $this->assertSame(
+            $bare->apply('mario.rossi@example.com', 'email'),
+            $strategy->apply('mario.rossi@example.com', 'email'),
+        );
+    }
+
     public function test_zero_is_a_valid_configured_legacy_tenant_id(): void
     {
         // "0" is a valid tenant id and must NOT be falsy-coerced to 'default':
