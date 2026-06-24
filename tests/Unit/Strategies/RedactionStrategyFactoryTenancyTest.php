@@ -41,4 +41,27 @@ final class RedactionStrategyFactoryTenancyTest extends TestCase
             $strategy->apply('mario.rossi@example.com', 'email'),
         );
     }
+
+    public function test_zero_is_a_valid_configured_legacy_tenant_id(): void
+    {
+        // "0" is a valid tenant id and must NOT be falsy-coerced to 'default':
+        // the fallback resolver reports "0", which equals the legacyTenantId,
+        // so the token stays bare (v1.3-compatible).
+        $config = new Repository([
+            'pii-redactor' => [
+                'strategy' => 'tokenise',
+                'salt' => 'base-salt',
+                'token_hex_length' => 16,
+                'tenant' => ['default_id' => '0'],
+            ],
+        ]);
+
+        $strategy = (new RedactionStrategyFactory($config, new InMemoryTokenStore))->make('tokenise');
+        $bare = new TokeniseStrategy('base-salt', 16, new InMemoryTokenStore);
+
+        $this->assertSame(
+            $bare->apply('mario.rossi@example.com', 'email'),
+            $strategy->apply('mario.rossi@example.com', 'email'),
+        );
+    }
 }

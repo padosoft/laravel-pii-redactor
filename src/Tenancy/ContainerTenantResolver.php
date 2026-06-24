@@ -38,9 +38,11 @@ final class ContainerTenantResolver implements TenantResolver
         // Defensive: never recurse if the host (mis)bound the abstract to this
         // very proxy — fall back to the bundled default's constant id.
         if ($resolver instanceof self) {
-            return (new DefaultTenantResolver(
-                (string) ($this->app->make('config')->get('pii-redactor.tenant.default_id') ?: 'default'),
-            ))->currentTenantId();
+            $raw = $this->app->make('config')->get('pii-redactor.tenant.default_id');
+            // Explicit null/'' check (not `?:`) so the valid id "0" is preserved.
+            $id = is_string($raw) && $raw !== '' ? $raw : 'default';
+
+            return (new DefaultTenantResolver($id))->currentTenantId();
         }
 
         return $resolver->currentTenantId();

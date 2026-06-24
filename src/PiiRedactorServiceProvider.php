@@ -230,7 +230,10 @@ final class PiiRedactorServiceProvider extends ServiceProvider
         // Lazy proxy so the singleton stores re-resolve a scoped/per-request
         // host resolver on every call instead of freezing the first instance.
         $tenants = new ContainerTenantResolver($app);
-        $legacyTenantId = (string) $config->get('pii-redactor.tenant.default_id', 'default');
+        // Explicit null/'' check (not the config default arg) so the valid id
+        // "0" is preserved and an explicit-null config doesn't become ''.
+        $rawLegacy = $config->get('pii-redactor.tenant.default_id');
+        $legacyTenantId = is_string($rawLegacy) && $rawLegacy !== '' ? $rawLegacy : 'default';
 
         return match ($driver) {
             'memory' => new InMemoryTokenStore($tenants),

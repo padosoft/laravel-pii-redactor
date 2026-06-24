@@ -23,8 +23,10 @@ final class RedactionStrategyFactory
         // not a hard-coded 'default' — so a direct factory user (e.g. an admin
         // preview) with a customised `tenant.default_id` still mints the
         // v1.3-compatible BARE token (currentTenantId === legacyTenantId).
+        $rawDefault = $config->get('pii-redactor.tenant.default_id');
         $this->tenants = $tenants ?? new DefaultTenantResolver(
-            (string) ($config->get('pii-redactor.tenant.default_id') ?: 'default'),
+            // Explicit null/'' check (not `?:`) so the valid id "0" is preserved.
+            is_string($rawDefault) && $rawDefault !== '' ? $rawDefault : 'default',
         );
     }
 

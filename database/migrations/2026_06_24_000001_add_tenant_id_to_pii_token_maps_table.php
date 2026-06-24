@@ -32,7 +32,10 @@ return new class extends Migration
         // hard-coded 'default' — so that when a host runs with
         // PII_REDACTOR_DEFAULT_TENANT_ID set to something else, the store
         // (which queries by that configured id) still finds its pre-v1.4 rows.
-        $legacyTenantId = (string) (config('pii-redactor.tenant.default_id') ?: 'default');
+        // Explicit null/'' check (not `?:`) so the valid tenant id "0" is
+        // preserved rather than falsy-coerced to 'default'.
+        $rawLegacy = config('pii-redactor.tenant.default_id');
+        $legacyTenantId = is_string($rawLegacy) && $rawLegacy !== '' ? $rawLegacy : 'default';
 
         if (! Schema::hasColumn('pii_token_maps', 'tenant_id')) {
             Schema::table('pii_token_maps', function (Blueprint $table) use ($legacyTenantId): void {
