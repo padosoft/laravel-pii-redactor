@@ -19,7 +19,13 @@ final class RedactionStrategyFactory
         private readonly TokenStore $tokenStore,
         ?TenantResolver $tenants = null,
     ) {
-        $this->tenants = $tenants ?? new DefaultTenantResolver;
+        // The fallback resolver must report the CONFIGURED legacy tenant id —
+        // not a hard-coded 'default' — so a direct factory user (e.g. an admin
+        // preview) with a customised `tenant.default_id` still mints the
+        // v1.3-compatible BARE token (currentTenantId === legacyTenantId).
+        $this->tenants = $tenants ?? new DefaultTenantResolver(
+            (string) ($config->get('pii-redactor.tenant.default_id') ?: 'default'),
+        );
     }
 
     /**
